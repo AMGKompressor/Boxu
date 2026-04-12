@@ -1,0 +1,27 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Studio5Resources smoke test (SDK only)",
+      "type": "cppdbg",
+      "request": "launch",
+      "program": "${workspaceFolder}/build/studio5_smoketest",
+      "args": [],
+      "cwd": "${workspaceFolder}",
+      "stopAtEntry": false,
+      "MIMode": "lldb",
+      "preLaunchTask": "cmake: build"
+    },
+    {
+      "name": "Shadow Box (game cwd)",
+      "type": "cppdbg",
+      "request": "launch",
+      "program": "${workspaceFolder}/build/shadowbox",
+      "args": [],
+      "cwd": "${workspaceFolder}/game",
+      "stopAtEntry": false,
+      "MIMode": "lldb",
+      "preLaunchTask": "cmake: build"
+    }
+  ]
+}

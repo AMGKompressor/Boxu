@@ -1,0 +1,21 @@
+# Build
+build/
+cmake-build-*/
+out/
+temp/
+Boxu/temp/
+
+# macOS
+.DS_Store
+*.dSYM/
+
+# IDE
+.idea/
+*.xcuserstate
+
+# Compiled
+*.o
+*.a
+*.dylib
+*.exe
+*.obj
