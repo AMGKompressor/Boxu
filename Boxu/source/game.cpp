@@ -1,4 +1,4 @@
-// COMP710 GP Framework
+// COMP710 GP Framework — field op codename Suneku (cardboard-box stealth, Kojima hive assemble).
 
 #include "game.h"
 
@@ -15,6 +15,15 @@
 
 namespace
 {
+	const float kWalkMoveSpeed = 130.0f;
+	const float kSprintMoveSpeedMax = 300.0f;
+	const float kMoveSpeedRampUpPerSec = 260.0f;
+	const float kMoveSpeedRampDownPerSec = 320.0f;
+
+	const float kWallNoiseRadiusWalk = 140.0f;
+	const float kWallNoiseRadiusSprint = 320.0f;
+	const float kNoisePulseDuration = 0.55f;
+
 	// AABB half-extents for a centered rect (halfW, halfH) rotated by angleDeg (Sprite convention).
 	void orientedRectWorldAabbHalfExtents(float halfW, float halfH, float angleDeg, float& outHalfX, float& outHalfY)
 	{
@@ -187,18 +196,19 @@ void Game::destroyInstance()
 Game::Game()
 	: mRenderer(0)
 	, mFloor(0)
-	, mPlayer(0)
-	, mPlayerHitboxDebug(0)
-	, mPlayerX(0.0f)
-	, mPlayerY(0.0f)
-	, mPlayerHitboxHalfW(48.0f)
-	, mPlayerHitboxHalfH(48.0f)
+	, mSuneku(0)
+	, mSunekuHitboxDebug(0)
+	, mSunekuX(0.0f)
+	, mSunekuY(0.0f)
+	, mSunekuHitboxHalfW(48.0f)
+	, mSunekuHitboxHalfH(48.0f)
 	, mMapWidth(2560.0f)
 	, mMapHeight(1920.0f)
 	, mCameraX(0.0f)
 	, mCameraY(0.0f)
-	, mFacingAngleDeg(0.0f)
-	, mShowDebugHitbox(true)
+	, mSunekuFacingDeg(0.0f)
+	, mSunekuMoveSpeed(kWalkMoveSpeed)
+	, mShowSunekuHitbox(true)
 	, mLastTime(0)
 	, mExecutionTime(0.0f)
 	, mElapsedSeconds(0.0f)
@@ -214,6 +224,12 @@ Game::Game()
 	, mWallHitPcmLen(0)
 	, mWallHitPcmFromLoadWav(false)
 	, mOutlineWallPrevTouch{}
+	, mLastWallHitNoiseRadius(0.0f)
+	, mWallNoisePulseAge(0.0f)
+	, mWallNoisePulseMaxR(0.0f)
+	, mWallNoisePulseCx(0.0f)
+	, mWallNoisePulseCy(0.0f)
+	, mWallNoisePulseActive(false)
 {
 }
 
@@ -221,11 +237,11 @@ Game::~Game()
 {
 	shutdownWallHitAudio();
 
-	delete mPlayerHitboxDebug;
-	mPlayerHitboxDebug = 0;
+	delete mSunekuHitboxDebug;
+	mSunekuHitboxDebug = 0;
 
-	delete mPlayer;
-	mPlayer = 0;
+	delete mSuneku;
+	mSuneku = 0;
 
 	delete mFloor;
 	mFloor = 0;
@@ -260,44 +276,44 @@ bool Game::initialize()
 
 	mFloor = 0;
 
-	mPlayer = mRenderer->createSprite("textures/board8x8.png");
-	if (mPlayer != 0)
+	mSuneku = mRenderer->createSprite("textures/board8x8.png");
+	if (mSuneku != 0)
 	{
-		const float desiredPlayerSize = 96.0f;
-		const float playerScale = desiredPlayerSize / static_cast<float>(mPlayer->getWidth());
-		mPlayer->setScale(playerScale);
-		mPlayer->setRedTint(0.55f);
-		mPlayer->setGreenTint(0.35f);
-		mPlayer->setBlueTint(0.2f);
+		const float desiredSunekuBoxSize = 96.0f;
+		const float sunekuScale = desiredSunekuBoxSize / static_cast<float>(mSuneku->getWidth());
+		mSuneku->setScale(sunekuScale);
+		mSuneku->setRedTint(0.55f);
+		mSuneku->setGreenTint(0.35f);
+		mSuneku->setBlueTint(0.2f);
 
-		mPlayerHitboxHalfW = static_cast<float>(mPlayer->getWidth()) * 0.5f;
-		mPlayerHitboxHalfH = static_cast<float>(mPlayer->getHeight()) * 0.5f;
+		mSunekuHitboxHalfW = static_cast<float>(mSuneku->getWidth()) * 0.5f;
+		mSunekuHitboxHalfH = static_cast<float>(mSuneku->getHeight()) * 0.5f;
 
-		mPlayerHitboxDebug = mRenderer->createSprite("textures/board8x8.png");
-		if (mPlayerHitboxDebug != 0)
+		mSunekuHitboxDebug = mRenderer->createSprite("textures/board8x8.png");
+		if (mSunekuHitboxDebug != 0)
 		{
-			mPlayerHitboxDebug->setScale(playerScale);
-			mPlayerHitboxDebug->setRedTint(1.0f);
-			mPlayerHitboxDebug->setGreenTint(0.0f);
-			mPlayerHitboxDebug->setBlueTint(0.0f);
-			mPlayerHitboxDebug->setAlpha(0.3f);
+			mSunekuHitboxDebug->setScale(sunekuScale);
+			mSunekuHitboxDebug->setRedTint(1.0f);
+			mSunekuHitboxDebug->setGreenTint(0.0f);
+			mSunekuHitboxDebug->setBlueTint(0.0f);
+			mSunekuHitboxDebug->setAlpha(0.3f);
 		}
 
-		mPlayerX = (Game::kTutorialEntryWestX + Game::kTutorialEntryEastX) * 0.5f;
-		mPlayerY = 900.0f;
-		mPlayer->setX(static_cast<int>(mPlayerX));
-		mPlayer->setY(static_cast<int>(mPlayerY));
-		if (mPlayerHitboxDebug != 0)
+		mSunekuX = (Game::kTutorialEntryWestX + Game::kTutorialEntryEastX) * 0.5f;
+		mSunekuY = 900.0f;
+		mSuneku->setX(static_cast<int>(mSunekuX));
+		mSuneku->setY(static_cast<int>(mSunekuY));
+		if (mSunekuHitboxDebug != 0)
 		{
-			mPlayerHitboxDebug->setX(static_cast<int>(mPlayerX));
-			mPlayerHitboxDebug->setY(static_cast<int>(mPlayerY));
+			mSunekuHitboxDebug->setX(static_cast<int>(mSunekuX));
+			mSunekuHitboxDebug->setY(static_cast<int>(mSunekuY));
 		}
 		updateCamera();
 		mRenderer->setCamera(mCameraX, mCameraY);
 	}
 	else
 	{
-		LogManager::getInstance().log("Failed to create player sprite.");
+		LogManager::getInstance().log("Failed to create Suneku sprite.");
 	}
 
 	if (SDL_InitSubSystem(SDL_INIT_AUDIO) < 0)
@@ -331,7 +347,7 @@ bool Game::doGameLoop()
 			}
 			else if (event.key.keysym.scancode == SDL_SCANCODE_H)
 			{
-				mShowDebugHitbox = !mShowDebugHitbox;
+				mShowSunekuHitbox = !mShowSunekuHitbox;
 			}
 		}
 	}
@@ -382,17 +398,16 @@ void Game::process(float deltaTime)
 
 	processFrameCounting(deltaTime);
 
-	if (mPlayer != 0)
+	if (mSuneku != 0)
 	{
 		SDL_PumpEvents();
-		updateFacingTowardMouse(deltaTime);
-		mPlayer->setAngle(mFacingAngleDeg);
-		if (mPlayerHitboxDebug != 0)
+		updateSunekuFacingTowardMouse(deltaTime);
+		mSuneku->setAngle(mSunekuFacingDeg);
+		if (mSunekuHitboxDebug != 0)
 		{
-			mPlayerHitboxDebug->setAngle(mFacingAngleDeg);
+			mSunekuHitboxDebug->setAngle(mSunekuFacingDeg);
 		}
 
-		const float speed = 250.0f;
 		const Uint8* keys = SDL_GetKeyboardState(0);
 
 		float dx = 0.0f;
@@ -409,24 +424,40 @@ void Game::process(float deltaTime)
 			dy *= invLen;
 		}
 
-		const float nextX = mPlayerX + dx * speed * deltaTime;
-		const float nextY = mPlayerY + dy * speed * deltaTime;
+		const bool moveInput = (dx != 0.0f || dy != 0.0f);
+		const bool sprintHeld =
+			keys[SDL_SCANCODE_LSHIFT] != 0u || keys[SDL_SCANCODE_RSHIFT] != 0u;
+
+		const float targetSpeed =
+			(moveInput && sprintHeld) ? kSprintMoveSpeedMax : kWalkMoveSpeed;
+
+		if (mSunekuMoveSpeed < targetSpeed)
+		{
+			mSunekuMoveSpeed = std::min(targetSpeed, mSunekuMoveSpeed + kMoveSpeedRampUpPerSec * deltaTime);
+		}
+		else if (mSunekuMoveSpeed > targetSpeed)
+		{
+			mSunekuMoveSpeed = std::max(targetSpeed, mSunekuMoveSpeed - kMoveSpeedRampDownPerSec * deltaTime);
+		}
+
+		const float nextX = mSunekuX + dx * mSunekuMoveSpeed * deltaTime;
+		const float nextY = mSunekuY + dy * mSunekuMoveSpeed * deltaTime;
 
 		float worldHalfX = 0.0f;
 		float worldHalfY = 0.0f;
 		orientedRectWorldAabbHalfExtents(
-			mPlayerHitboxHalfW, mPlayerHitboxHalfH, mFacingAngleDeg, worldHalfX, worldHalfY);
+			mSunekuHitboxHalfW, mSunekuHitboxHalfH, mSunekuFacingDeg, worldHalfX, worldHalfY);
 
 		float clampedX = nextX;
 		float clampedY = nextY;
-		constrainPlayerToTutorialOutline(
+		constrainSunekuToTutorialOutline(
 			clampedX,
 			clampedY,
 			worldHalfX,
 			worldHalfY,
-			mPlayerHitboxHalfW,
-			mPlayerHitboxHalfH,
-			mFacingAngleDeg);
+			mSunekuHitboxHalfW,
+			mSunekuHitboxHalfH,
+			mSunekuFacingDeg);
 
 		const float kTouchSlop = 3.0f;
 		bool newContact = false;
@@ -463,7 +494,7 @@ void Game::process(float deltaTime)
 				ndy = my / dist;
 			}
 			const float req =
-				obbExtentAlongInwardNormal(ndx, ndy, mPlayerHitboxHalfW, mPlayerHitboxHalfH, mFacingAngleDeg);
+				obbExtentAlongInwardNormal(ndx, ndy, mSunekuHitboxHalfW, mSunekuHitboxHalfH, mSunekuFacingDeg);
 			const bool touching = dist > 0.0f && dist <= req + kTouchSlop;
 			if (touching && !mOutlineWallPrevTouch[static_cast<std::size_t>(s)])
 			{
@@ -474,17 +505,33 @@ void Game::process(float deltaTime)
 		if (newContact)
 		{
 			playWallHitSoundIfReady();
+			mLastWallHitNoiseRadius =
+				sprintHeld ? kWallNoiseRadiusSprint : kWallNoiseRadiusWalk;
+			mWallNoisePulseActive = true;
+			mWallNoisePulseAge = 0.0f;
+			mWallNoisePulseMaxR = mLastWallHitNoiseRadius;
+			mWallNoisePulseCx = clampedX;
+			mWallNoisePulseCy = clampedY;
 		}
 
-		mPlayerX = clampedX;
-		mPlayerY = clampedY;
-
-		mPlayer->setX(static_cast<int>(mPlayerX));
-		mPlayer->setY(static_cast<int>(mPlayerY));
-		if (mPlayerHitboxDebug != 0)
+		if (mWallNoisePulseActive)
 		{
-			mPlayerHitboxDebug->setX(static_cast<int>(mPlayerX));
-			mPlayerHitboxDebug->setY(static_cast<int>(mPlayerY));
+			mWallNoisePulseAge += deltaTime;
+			if (mWallNoisePulseAge >= kNoisePulseDuration)
+			{
+				mWallNoisePulseActive = false;
+			}
+		}
+
+		mSunekuX = clampedX;
+		mSunekuY = clampedY;
+
+		mSuneku->setX(static_cast<int>(mSunekuX));
+		mSuneku->setY(static_cast<int>(mSunekuY));
+		if (mSunekuHitboxDebug != 0)
+		{
+			mSunekuHitboxDebug->setX(static_cast<int>(mSunekuX));
+			mSunekuHitboxDebug->setY(static_cast<int>(mSunekuY));
 		}
 
 		updateCamera();
@@ -503,17 +550,37 @@ void Game::draw(Renderer& renderer)
 		mFloor->draw(renderer);
 	}
 
-	if (mPlayer != 0)
+	if (mSuneku != 0)
 	{
-		mPlayer->draw(renderer);
+		mSuneku->draw(renderer);
 	}
-	if (mShowDebugHitbox && mPlayerHitboxDebug != 0)
+	if (mShowSunekuHitbox && mSunekuHitboxDebug != 0)
 	{
-		mPlayerHitboxDebug->draw(renderer);
+		mSunekuHitboxDebug->draw(renderer);
 	}
 
 	renderer.drawWorldLineSegments(
 		kTutorialWireFlat.data(), kTutorialWireSegmentCount, 1.0f, 0.0f, 0.0f, 1.0f);
+
+	if (mShowSunekuHitbox && mWallNoisePulseActive && mWallNoisePulseMaxR > 1.0f)
+	{
+		const float t = mWallNoisePulseAge / kNoisePulseDuration;
+		if (t >= 0.0f && t < 1.0f)
+		{
+			const float ringR = mWallNoisePulseMaxR * t;
+			const float alpha = (1.0f - t) * 0.9f;
+			const int n = 36;
+			float xy[72];
+			const float twoPi = 6.2831853f;
+			for (int i = 0; i < n; ++i)
+			{
+				const float ang = twoPi * static_cast<float>(i) / static_cast<float>(n);
+				xy[i * 2 + 0] = mWallNoisePulseCx + std::cos(ang) * ringR;
+				xy[i * 2 + 1] = mWallNoisePulseCy + std::sin(ang) * ringR;
+			}
+			renderer.drawWorldLineLoop(xy, n, 0.35f, 0.88f, 1.0f, alpha);
+		}
+	}
 
 	renderer.present();
 }
@@ -522,7 +589,7 @@ namespace
 {
 	const float kMaxTurnRateDegPerSec = 220.0f;
 
-	const float kSpriteFacingOffsetDeg = 90.0f;
+	const float kSunekuSpriteFacingOffsetDeg = 90.0f;
 	const float kFacingTurnSign = 1.0f;
 	const float kAimSnapDegrees = 1.25f;
 
@@ -541,7 +608,7 @@ namespace
 	}
 }
 
-void Game::updateFacingTowardMouse(float deltaTime)
+void Game::updateSunekuFacingTowardMouse(float deltaTime)
 {
 	int mouseX = 0;
 	int mouseY = 0;
@@ -550,8 +617,8 @@ void Game::updateFacingTowardMouse(float deltaTime)
 	const float worldMouseX = mCameraX + static_cast<float>(mouseX);
 	const float worldMouseY = mCameraY + static_cast<float>(mouseY);
 
-	const float dx = worldMouseX - mPlayerX;
-	const float dy = worldMouseY - mPlayerY;
+	const float dx = worldMouseX - mSunekuX;
+	const float dy = worldMouseY - mSunekuY;
 	const float lenSq = dx * dx + dy * dy;
 	if (lenSq < 4.0f)
 	{
@@ -559,28 +626,28 @@ void Game::updateFacingTowardMouse(float deltaTime)
 	}
 
 	const float targetDeg =
-		-std::atan2(dy, dx) * 57.2957795f + kSpriteFacingOffsetDeg;
+		-std::atan2(dy, dx) * 57.2957795f + kSunekuSpriteFacingOffsetDeg;
 
 	const float maxStep = kMaxTurnRateDegPerSec * deltaTime;
-	float delta = shortestAngleDeltaDegrees(mFacingAngleDeg, targetDeg);
+	float delta = shortestAngleDeltaDegrees(mSunekuFacingDeg, targetDeg);
 
 	if (std::fabs(delta) <= maxStep || std::fabs(delta) <= kAimSnapDegrees)
 	{
-		mFacingAngleDeg = targetDeg;
+		mSunekuFacingDeg = targetDeg;
 	}
 	else
 	{
 		const float step = (delta >= 0.0f) ? maxStep : -maxStep;
-		mFacingAngleDeg += kFacingTurnSign * step;
+		mSunekuFacingDeg += kFacingTurnSign * step;
 	}
 
-	while (mFacingAngleDeg >= 360.0f)
+	while (mSunekuFacingDeg >= 360.0f)
 	{
-		mFacingAngleDeg -= 360.0f;
+		mSunekuFacingDeg -= 360.0f;
 	}
-	while (mFacingAngleDeg < 0.0f)
+	while (mSunekuFacingDeg < 0.0f)
 	{
-		mFacingAngleDeg += 360.0f;
+		mSunekuFacingDeg += 360.0f;
 	}
 }
 
@@ -594,8 +661,8 @@ void Game::updateCamera()
 	if (maxCamX < 0.0f) { maxCamX = 0.0f; }
 	if (maxCamY < 0.0f) { maxCamY = 0.0f; }
 
-	mCameraX = mPlayerX - viewW * 0.5f;
-	mCameraY = mPlayerY - viewH * 0.5f;
+	mCameraX = mSunekuX - viewW * 0.5f;
+	mCameraY = mSunekuY - viewH * 0.5f;
 
 	if (mCameraX < 0.0f) { mCameraX = 0.0f; }
 	if (mCameraY < 0.0f) { mCameraY = 0.0f; }
@@ -615,7 +682,7 @@ void Game::processFrameCounting(float deltaTime)
 	}
 }
 
-void Game::constrainPlayerToTutorialOutline(
+void Game::constrainSunekuToTutorialOutline(
 	float& cx,
 	float& cy,
 	float worldHalfX,

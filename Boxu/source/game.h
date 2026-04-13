@@ -1,4 +1,4 @@
-// COMP710 GP Framework
+// COMP710 GP Framework — operative codename Suneku (tactical sneaking unit).
 #ifndef __GAME_H_
 #define __GAME_H_
 
@@ -6,6 +6,7 @@
 #include <cstdint>
 
 #include "level_layout.h"
+
 
 class Renderer;
 class Sprite;
@@ -28,8 +29,8 @@ protected:
 	void draw(Renderer& renderer);
 	void processFrameCounting(float deltaTime);
 	void updateCamera();
-	void updateFacingTowardMouse(float deltaTime);
-	void constrainPlayerToTutorialOutline(
+	void updateSunekuFacingTowardMouse(float deltaTime);
+	void constrainSunekuToTutorialOutline(
 		float& cx,
 		float& cy,
 		float worldHalfX,
@@ -50,18 +51,19 @@ private:
 	static Game* sInstance;
 	Renderer* mRenderer;
 	Sprite* mFloor;
-	Sprite* mPlayer;
-	Sprite* mPlayerHitboxDebug;
-	float mPlayerX;
-	float mPlayerY;
-	float mPlayerHitboxHalfW;
-	float mPlayerHitboxHalfH;
+	Sprite* mSuneku;
+	Sprite* mSunekuHitboxDebug;
+	float mSunekuX;
+	float mSunekuY;
+	float mSunekuHitboxHalfW;
+	float mSunekuHitboxHalfH;
 	float mMapWidth;
 	float mMapHeight;
 	float mCameraX;
 	float mCameraY;
-	float mFacingAngleDeg;
-	bool mShowDebugHitbox;
+	float mSunekuFacingDeg;
+	float mSunekuMoveSpeed;
+	bool mShowSunekuHitbox;
 
 	std::int64_t mLastTime;
 	float mExecutionTime;
@@ -82,6 +84,14 @@ private:
 	bool mWallHitPcmFromLoadWav;
 
 	std::array<bool, kTutorialWallPhysicsSegmentCount> mOutlineWallPrevTouch;
+
+	// Suneku wall strike — noise radius for future AI (walk vs sprint). Pulse ring when H shows hitbox.
+	float mLastWallHitNoiseRadius;
+	float mWallNoisePulseAge;
+	float mWallNoisePulseMaxR;
+	float mWallNoisePulseCx;
+	float mWallNoisePulseCy;
+	bool mWallNoisePulseActive;
 };
 
 #endif // __GAME_H_

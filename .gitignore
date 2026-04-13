@@ -9,7 +9,6 @@ Boxu/temp/
 .DS_Store
 *.dSYM/
 
-# Draft markdown and local logs (optional; excluded from this repo).
 docs/*.md
 Boxu/DEV_ISSUES_LOG.txt
 studio5_smoketest/README.md
