@@ -1,4 +1,4 @@
-// COMP710 GP Framework — operative codename Suneku (tactical sneaking unit).
+// COMP710 GP Framework
 #ifndef __GAME_H_
 #define __GAME_H_
 
@@ -92,6 +92,11 @@ private:
 	float mWallNoisePulseCx;
 	float mWallNoisePulseCy;
 	bool mWallNoisePulseActive;
+
+	// Ocelot: sleeps until a wall-hit noise wave reaches him, then chases Suneku.
+	float mOcelotX;
+	float mOcelotY;
+	bool mOcelotAwake;
 };
 
 #endif // __GAME_H_

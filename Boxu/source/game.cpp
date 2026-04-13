@@ -1,4 +1,4 @@
-// COMP710 GP Framework — field op codename Suneku (cardboard-box stealth, Kojima hive assemble).
+// COMP710 GP Framework — field op codename Suneku
 
 #include "game.h"
 
@@ -23,6 +23,38 @@ namespace
 	const float kWallNoiseRadiusWalk = 140.0f;
 	const float kWallNoiseRadiusSprint = 320.0f;
 	const float kNoisePulseDuration = 0.55f;
+
+	const float kOcelotSpawnX = 2000.0f;
+	const float kOcelotSpawnY = 480.0f;
+	const float kOcelotBodyRadius = 38.0f;
+	const float kOcelotChaseSpeed = 108.0f;
+	const float kOcelotStopDist = 72.0f;
+
+	void drawWorldCircleOutline(
+		Renderer& renderer,
+		float cx,
+		float cy,
+		float radius,
+		int segments,
+		float cr,
+		float cg,
+		float cb,
+		float ca)
+	{
+		if (segments < 3 || segments > 64)
+		{
+			return;
+		}
+		float xy[128];
+		const float twoPi = 6.2831853f;
+		for (int i = 0; i < segments; ++i)
+		{
+			const float ang = twoPi * static_cast<float>(i) / static_cast<float>(segments);
+			xy[i * 2 + 0] = cx + std::cos(ang) * radius;
+			xy[i * 2 + 1] = cy + std::sin(ang) * radius;
+		}
+		renderer.drawWorldLineLoop(xy, segments, cr, cg, cb, ca);
+	}
 
 	// AABB half-extents for a centered rect (halfW, halfH) rotated by angleDeg (Sprite convention).
 	void orientedRectWorldAabbHalfExtents(float halfW, float halfH, float angleDeg, float& outHalfX, float& outHalfY)
@@ -230,6 +262,9 @@ Game::Game()
 	, mWallNoisePulseCx(0.0f)
 	, mWallNoisePulseCy(0.0f)
 	, mWallNoisePulseActive(false)
+	, mOcelotX(kOcelotSpawnX)
+	, mOcelotY(kOcelotSpawnY)
+	, mOcelotAwake(false)
 {
 }
 
@@ -512,6 +547,17 @@ void Game::process(float deltaTime)
 			mWallNoisePulseMaxR = mLastWallHitNoiseRadius;
 			mWallNoisePulseCx = clampedX;
 			mWallNoisePulseCy = clampedY;
+
+			if (!mOcelotAwake)
+			{
+				const float edx = mOcelotX - clampedX;
+				const float edy = mOcelotY - clampedY;
+				const float noiseR = mLastWallHitNoiseRadius;
+				if (edx * edx + edy * edy <= noiseR * noiseR)
+				{
+					mOcelotAwake = true;
+				}
+			}
 		}
 
 		if (mWallNoisePulseActive)
@@ -532,6 +578,26 @@ void Game::process(float deltaTime)
 		{
 			mSunekuHitboxDebug->setX(static_cast<int>(mSunekuX));
 			mSunekuHitboxDebug->setY(static_cast<int>(mSunekuY));
+		}
+
+		if (mOcelotAwake)
+		{
+			float edx = mSunekuX - mOcelotX;
+			float edy = mSunekuY - mOcelotY;
+			const float elenSq = edx * edx + edy * edy;
+			if (elenSq > kOcelotStopDist * kOcelotStopDist)
+			{
+				const float elen = std::sqrt(elenSq);
+				edx /= elen;
+				edy /= elen;
+				mOcelotX += edx * kOcelotChaseSpeed * deltaTime;
+				mOcelotY += edy * kOcelotChaseSpeed * deltaTime;
+			}
+			const float er = kOcelotBodyRadius;
+			if (mOcelotX < er) { mOcelotX = er; }
+			if (mOcelotY < er) { mOcelotY = er; }
+			if (mOcelotX > mMapWidth - er) { mOcelotX = mMapWidth - er; }
+			if (mOcelotY > mMapHeight - er) { mOcelotY = mMapHeight - er; }
 		}
 
 		updateCamera();
@@ -579,6 +645,19 @@ void Game::draw(Renderer& renderer)
 				xy[i * 2 + 1] = mWallNoisePulseCy + std::sin(ang) * ringR;
 			}
 			renderer.drawWorldLineLoop(xy, n, 0.35f, 0.88f, 1.0f, alpha);
+		}
+	}
+
+	{
+		const float er = kOcelotBodyRadius;
+		if (mOcelotAwake)
+		{
+			drawWorldCircleOutline(renderer, mOcelotX, mOcelotY, er, 36, 1.0f, 0.32f, 0.08f, 1.0f);
+			drawWorldCircleOutline(renderer, mOcelotX, mOcelotY, er * 0.55f, 24, 1.0f, 0.55f, 0.2f, 0.85f);
+		}
+		else
+		{
+			drawWorldCircleOutline(renderer, mOcelotX, mOcelotY, er, 36, 0.42f, 0.45f, 0.5f, 0.75f);
 		}
 	}
 
