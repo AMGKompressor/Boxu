@@ -23,6 +23,9 @@ public:
 
 	void setMatrixUniform(const char* name, const Matrix4& matrix);
 	void setVector4Uniform(const char* name, float x, float y, float z, float w);
+	void setFloatUniform(const char* name, float x);
+	void setIntUniform(const char* name, int value);
+	void setVec4ArrayUniform(const char* name, const float* vec4s, int count);
 
 private:
 	bool isValidProgram();

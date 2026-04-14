@@ -14,6 +14,7 @@
 #include <SDL_filesystem.h>
 #include <SDL_image.h>
 
+#include <algorithm>
 #include <string>
 #include <GL/glew.h>
 #include <cassert>
@@ -23,9 +24,12 @@ Renderer::Renderer()
 	: mTextureManager(0)
 	, mSpriteShader(0)
 	, mLineShader(0)
+	, mVisionMaskShader(0)
 	, mLineVao(0)
 	, mLineVbo(0)
+	, mVisionMaskVao(0)
 	, mSpriteVertexData(0)
+	, mSolidWhiteTexture(0)
 	, mGlContext(0)
 	, mWidth(0)
 	, mHeight(0)
@@ -50,11 +54,21 @@ Renderer::~Renderer()
 		glDeleteBuffers(1, &mLineVbo);
 		mLineVbo = 0;
 	}
+	if (mVisionMaskVao != 0)
+	{
+		glDeleteVertexArrays(1, &mVisionMaskVao);
+		mVisionMaskVao = 0;
+	}
 	delete mLineShader;
 	mLineShader = 0;
+	delete mVisionMaskShader;
+	mVisionMaskShader = 0;
 
 	delete mSpriteShader;
 	mSpriteShader = 0;
+
+	delete mSolidWhiteTexture;
+	mSolidWhiteTexture = 0;
 
 	delete mSpriteVertexData;
 	mSpriteVertexData = 0;
@@ -135,6 +149,17 @@ bool Renderer::initialize(bool windowed, int width, int height)
 		initialized = mTextureManager->initialize();
 	}
 
+	if (initialized)
+	{
+		mSolidWhiteTexture = new Texture();
+		const unsigned char px[4] = {255, 255, 255, 255};
+		if (!mSolidWhiteTexture->initializeFromRgba(1, 1, px))
+		{
+			delete mSolidWhiteTexture;
+			mSolidWhiteTexture = 0;
+		}
+	}
+
 	return initialized;
 }
 
@@ -175,6 +200,10 @@ bool Renderer::initializeOpenGL(int screenWidth, int screenHeight)
 		if (!setupLineDebugGraphics())
 		{
 			LogManager::getInstance().log("Line debug shader failed (level outline will not draw).");
+		}
+		if (!setupVisionMaskGraphics())
+		{
+			LogManager::getInstance().log("Vision mask shader failed (cone vision disabled).");
 		}
 	}
 
@@ -322,6 +351,56 @@ void Renderer::drawSprite(Sprite& sprite)
 	glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, 0);
 }
 
+void Renderer::drawWorldAxisAlignedQuad(
+	float centerX,
+	float centerY,
+	float halfWidth,
+	float halfHeight,
+	float r,
+	float g,
+	float b,
+	float a)
+{
+	if (mSpriteShader == 0 || mSpriteVertexData == 0 || mSolidWhiteTexture == 0)
+	{
+		return;
+	}
+	if (halfWidth <= 0.0f || halfHeight <= 0.0f)
+	{
+		return;
+	}
+
+	mSolidWhiteTexture->setActive();
+	mSpriteShader->setActive();
+	mSpriteVertexData->setActive();
+
+	Matrix4 world;
+	setIdentity(world);
+	world.m[0][0] = halfWidth * 2.0f;
+	world.m[1][1] = halfHeight * 2.0f;
+	world.m[3][0] = centerX;
+	world.m[3][1] = centerY;
+
+	mSpriteShader->setMatrixUniform("uWorldTransform", world);
+
+	Matrix4 ortho;
+	createOrthoProjection(ortho, static_cast<float>(mWidth), static_cast<float>(mHeight));
+
+	Matrix4 cam;
+	createTranslation(cam, -mCameraX, -mCameraY);
+
+	Matrix4 orthoViewProj;
+	matrixMultiply(orthoViewProj, cam, ortho);
+
+	mSpriteShader->setVector4Uniform("color", r, g, b, a);
+	mSpriteShader->setMatrixUniform("uViewProj", orthoViewProj);
+
+	glEnable(GL_BLEND);
+	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+
+	glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, 0);
+}
+
 bool Renderer::setupLineDebugGraphics()
 {
 	mLineShader = new Shader();
@@ -446,4 +525,70 @@ void Renderer::drawWorldLineSegments(const float* xyEndpoints, int segmentCount,
 
 	glBindVertexArray(0);
 	glBindBuffer(GL_ARRAY_BUFFER, 0);
+}
+
+bool Renderer::setupVisionMaskGraphics()
+{
+	mVisionMaskShader = new Shader();
+	if (!mVisionMaskShader->load("shaders/vision_mask.vert", "shaders/vision_mask.frag"))
+	{
+		delete mVisionMaskShader;
+		mVisionMaskShader = 0;
+		return false;
+	}
+
+	glGenVertexArrays(1, &mVisionMaskVao);
+	return true;
+}
+
+void Renderer::drawVisionConeMask(
+	float sunekuX,
+	float sunekuY,
+	float facingDeg,
+	float halfConeDeg,
+	float featherDeg,
+	float outsideAlpha,
+	float camX,
+	float camY,
+	const float* wallSegsFlat,
+	int wallSegmentCount)
+{
+	if (mVisionMaskShader == 0 || mVisionMaskVao == 0)
+	{
+		return;
+	}
+
+	const float degToRad = 3.14159265f / 180.0f;
+	const float halfConeRad = halfConeDeg * degToRad;
+	const float featherRad = featherDeg * degToRad;
+
+	mVisionMaskShader->setActive();
+	glBindVertexArray(mVisionMaskVao);
+
+	mVisionMaskShader->setFloatUniform("uSunekuX", sunekuX);
+	mVisionMaskShader->setFloatUniform("uSunekuY", sunekuY);
+	mVisionMaskShader->setFloatUniform("uFacingDeg", facingDeg);
+	mVisionMaskShader->setFloatUniform("uHalfConeRad", halfConeRad);
+	mVisionMaskShader->setFloatUniform("uFeatherRad", featherRad);
+	mVisionMaskShader->setFloatUniform("uOutsideAlpha", outsideAlpha);
+	mVisionMaskShader->setFloatUniform("uCamX", camX);
+	mVisionMaskShader->setFloatUniform("uCamY", camY);
+	mVisionMaskShader->setFloatUniform("uViewW", static_cast<float>(mWidth));
+	mVisionMaskShader->setFloatUniform("uViewH", static_cast<float>(mHeight));
+
+	const int kMaxVisionWalls = 32;
+	int nWall = 0;
+	if (wallSegsFlat != nullptr && wallSegmentCount > 0)
+	{
+		nWall = std::min(wallSegmentCount, kMaxVisionWalls);
+		mVisionMaskShader->setVec4ArrayUniform("uWallSeg", wallSegsFlat, nWall);
+	}
+	mVisionMaskShader->setIntUniform("uWallSegCount", nWall);
+
+	glBindTexture(GL_TEXTURE_2D, 0);
+	glEnable(GL_BLEND);
+	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+	glDrawArrays(GL_TRIANGLES, 0, 3);
+
+	glBindVertexArray(0);
 }

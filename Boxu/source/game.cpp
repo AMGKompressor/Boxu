@@ -8,8 +8,10 @@
 #include <cmath>
 #include <cstddef>
 #include <cstring>
+#include <vector>
 
 #include "renderer.h"
+#include "texture.h"
 #include "logmanager.h"
 #include "sprite.h"
 
@@ -29,6 +31,21 @@ namespace
 	const float kOcelotBodyRadius = 38.0f;
 	const float kOcelotChaseSpeed = 108.0f;
 	const float kOcelotStopDist = 72.0f;
+
+	// Wedge from Suneku facing; half-angle = half of total visible arc. H debug disables mask.
+	const float kVisionConeHalfAngleDeg = 40.0f;
+	const float kVisionConeFeatherDeg = 3.5f;
+	const float kVisionOutsideAlpha = 0.94f;
+
+	// Dark brown placeholder — readable on map, fits low-light stealth look.
+	const float kSunekuBodyBrownR = 0.24f;
+	const float kSunekuBodyBrownG = 0.14f;
+	const float kSunekuBodyBrownB = 0.085f;
+
+	// Interior floor (axis quad under gameplay art).
+	const float kMapFloorGreyR = 0.34f;
+	const float kMapFloorGreyG = 0.34f;
+	const float kMapFloorGreyB = 0.38f;
 
 	void drawWorldCircleOutline(
 		Renderer& renderer,
@@ -206,6 +223,131 @@ namespace
 			py += pushNy * (-worstMargin);
 		}
 	}
+
+	bool glyphRows5x7(char c, std::array<std::uint8_t, 7>& rows)
+	{
+		switch (c)
+		{
+		case '0':
+			rows = {14, 17, 17, 17, 17, 17, 14};
+			return true;
+		case '1':
+			rows = {4, 12, 4, 4, 4, 4, 14};
+			return true;
+		case '.':
+			rows = {0, 0, 0, 0, 0, 12, 12};
+			return true;
+		case ' ':
+			rows.fill(0);
+			return true;
+		case 'a':
+			rows = {14, 1, 15, 17, 17, 15, 0};
+			return true;
+		case 'l':
+			rows = {4, 4, 4, 4, 4, 4, 7};
+			return true;
+		case 'p':
+			rows = {14, 17, 17, 17, 14, 16, 16};
+			return true;
+		case 'h':
+			rows = {16, 16, 16, 31, 17, 17, 17};
+			return true;
+		default:
+			return false;
+		}
+	}
+
+	void setRgbaPixel(std::vector<unsigned char>& buf, int w, int h, int x, int y, unsigned char r, unsigned char g, unsigned char b, unsigned char a)
+	{
+		if (x < 0 || y < 0 || x >= w || y >= h || a == 0)
+		{
+			return;
+		}
+		const int i = (y * w + x) * 4;
+		const std::size_t u = static_cast<std::size_t>(i);
+		if (a == 255 || buf[u + 3] == 0)
+		{
+			buf[u + 0] = r;
+			buf[u + 1] = g;
+			buf[u + 2] = b;
+			buf[u + 3] = a;
+			return;
+		}
+		const float fa = static_cast<float>(a) / 255.0f;
+		const float inv = 1.0f - fa;
+		const float br = static_cast<float>(buf[u + 0]);
+		const float bg = static_cast<float>(buf[u + 1]);
+		const float bb = static_cast<float>(buf[u + 2]);
+		const float ba = static_cast<float>(buf[u + 3]);
+		buf[u + 0] = static_cast<unsigned char>(static_cast<float>(r) * fa + br * inv);
+		buf[u + 1] = static_cast<unsigned char>(static_cast<float>(g) * fa + bg * inv);
+		buf[u + 2] = static_cast<unsigned char>(static_cast<float>(b) * fa + bb * inv);
+		buf[u + 3] = static_cast<unsigned char>(static_cast<float>(a) * fa + ba * inv);
+	}
+
+	bool buildVersionLabelRgba(const char* text, int scale, int pad, int gap, std::vector<unsigned char>& rgba, int& outW, int& outH)
+	{
+		const int n = static_cast<int>(std::strlen(text));
+		if (n <= 0 || scale < 1)
+		{
+			return false;
+		}
+		const int cell = 5 * scale;
+		const int rowH = 7 * scale;
+		outW = pad * 2 + n * cell + (n - 1) * gap;
+		outH = pad * 2 + rowH;
+		rgba.assign(static_cast<std::size_t>(outW * outH * 4), 0);
+
+		int penX = pad;
+		const int penY = pad;
+		for (int ci = 0; ci < n; ++ci)
+		{
+			const char c = text[static_cast<std::size_t>(ci)];
+			std::array<std::uint8_t, 7> gr{};
+			if (!glyphRows5x7(c, gr))
+			{
+				gr.fill(0);
+			}
+			for (int py = 0; py < 7; ++py)
+			{
+				for (int px = 0; px < 5; ++px)
+				{
+					const int bit = (gr[static_cast<std::size_t>(py)] >> (4 - px)) & 1;
+					if (bit == 0)
+					{
+						continue;
+					}
+					for (int sy = 0; sy < scale; ++sy)
+					{
+						for (int sx = 0; sx < scale; ++sx)
+						{
+							const int x0 = penX + px * scale + sx;
+							const int y0 = penY + py * scale + sy;
+							setRgbaPixel(rgba, outW, outH, x0 + 1, y0 + 1, 0, 0, 0, 200);
+							setRgbaPixel(rgba, outW, outH, x0, y0, 236, 236, 236, 252);
+						}
+					}
+				}
+			}
+			penX += cell + gap;
+		}
+
+		// OpenGL samples v=0 from first image row; flip so label reads upright on screen.
+		for (int y = 0; y < outH / 2; ++y)
+		{
+			const int y2 = outH - 1 - y;
+			for (int x = 0; x < outW; ++x)
+			{
+				for (int k = 0; k < 4; ++k)
+				{
+					const std::size_t a = static_cast<std::size_t>((y * outW + x) * 4 + k);
+					const std::size_t b = static_cast<std::size_t>((y2 * outW + x) * 4 + k);
+					std::swap(rgba[a], rgba[b]);
+				}
+			}
+		}
+		return true;
+	}
 }
 
 Game* Game::sInstance = 0;
@@ -230,6 +372,8 @@ Game::Game()
 	, mFloor(0)
 	, mSuneku(0)
 	, mSunekuHitboxDebug(0)
+	, mVersionTexture(0)
+	, mVersionSprite(0)
 	, mSunekuX(0.0f)
 	, mSunekuY(0.0f)
 	, mSunekuHitboxHalfW(48.0f)
@@ -281,6 +425,11 @@ Game::~Game()
 	delete mFloor;
 	mFloor = 0;
 
+	delete mVersionSprite;
+	mVersionSprite = 0;
+	delete mVersionTexture;
+	mVersionTexture = 0;
+
 	delete mRenderer;
 	mRenderer = 0;
 }
@@ -317,9 +466,9 @@ bool Game::initialize()
 		const float desiredSunekuBoxSize = 96.0f;
 		const float sunekuScale = desiredSunekuBoxSize / static_cast<float>(mSuneku->getWidth());
 		mSuneku->setScale(sunekuScale);
-		mSuneku->setRedTint(0.55f);
-		mSuneku->setGreenTint(0.35f);
-		mSuneku->setBlueTint(0.2f);
+		mSuneku->setRedTint(kSunekuBodyBrownR);
+		mSuneku->setGreenTint(kSunekuBodyBrownG);
+		mSuneku->setBlueTint(kSunekuBodyBrownB);
 
 		mSunekuHitboxHalfW = static_cast<float>(mSuneku->getWidth()) * 0.5f;
 		mSunekuHitboxHalfH = static_cast<float>(mSuneku->getHeight()) * 0.5f;
@@ -358,6 +507,46 @@ bool Game::initialize()
 	else if (!tryInitWallHitAudio())
 	{
 		LogManager::getInstance().log("Wall-hit sound not loaded (sounds/thud.wav).");
+	}
+
+	mVersionTexture = new Texture();
+	mVersionSprite = new Sprite();
+	std::vector<unsigned char> versionRgba;
+	int vrW = 0;
+	int vrH = 0;
+	const char* kVersionOverlayText = "0.1 alpha";
+	if (!buildVersionLabelRgba(kVersionOverlayText, 3, 4, 3, versionRgba, vrW, vrH))
+	{
+		LogManager::getInstance().log("Version label raster failed.");
+		delete mVersionSprite;
+		mVersionSprite = 0;
+		delete mVersionTexture;
+		mVersionTexture = 0;
+	}
+	else if (!mVersionTexture->initializeFromRgba(vrW, vrH, versionRgba.data()))
+	{
+		LogManager::getInstance().log("Version label texture upload failed.");
+		delete mVersionSprite;
+		mVersionSprite = 0;
+		delete mVersionTexture;
+		mVersionTexture = 0;
+	}
+	else if (!mVersionSprite->initialize(*mVersionTexture))
+	{
+		LogManager::getInstance().log("Version label sprite init failed.");
+		delete mVersionSprite;
+		mVersionSprite = 0;
+		delete mVersionTexture;
+		mVersionTexture = 0;
+	}
+	else
+	{
+		mVersionSprite->setAngle(0.0f);
+		mVersionSprite->setScale(1.0f);
+		mVersionSprite->setRedTint(1.0f);
+		mVersionSprite->setGreenTint(1.0f);
+		mVersionSprite->setBlueTint(1.0f);
+		mVersionSprite->setAlpha(0.95f);
 	}
 
 	return true;
@@ -611,9 +800,51 @@ void Game::draw(Renderer& renderer)
 
 	renderer.clear();
 
+	renderer.drawWorldAxisAlignedQuad(
+		mMapWidth * 0.5f,
+		mMapHeight * 0.5f,
+		mMapWidth * 0.5f,
+		mMapHeight * 0.5f,
+		kMapFloorGreyR,
+		kMapFloorGreyG,
+		kMapFloorGreyB,
+		1.0f);
+
 	if (mFloor != 0)
 	{
 		mFloor->draw(renderer);
+	}
+
+	renderer.drawWorldLineSegments(
+		kTutorialWireFlat.data(), kTutorialWireSegmentCount, 1.0f, 0.0f, 0.0f, 1.0f);
+
+	{
+		const float er = kOcelotBodyRadius;
+		if (mOcelotAwake)
+		{
+			drawWorldCircleOutline(renderer, mOcelotX, mOcelotY, er, 36, 1.0f, 0.32f, 0.08f, 1.0f);
+			drawWorldCircleOutline(renderer, mOcelotX, mOcelotY, er * 0.55f, 24, 1.0f, 0.55f, 0.2f, 0.85f);
+		}
+		else
+		{
+			drawWorldCircleOutline(renderer, mOcelotX, mOcelotY, er, 36, 0.42f, 0.45f, 0.5f, 0.75f);
+		}
+	}
+
+	// Vision mask sits under Suneku so the body is not tinted by the wedge; world stays cone-lit.
+	if (!mShowSunekuHitbox)
+	{
+		renderer.drawVisionConeMask(
+			mSunekuX,
+			mSunekuY,
+			mSunekuFacingDeg,
+			kVisionConeHalfAngleDeg,
+			kVisionConeFeatherDeg,
+			kVisionOutsideAlpha,
+			mCameraX,
+			mCameraY,
+			kTutorialWireFlat.data(),
+			kTutorialWireSegmentCount);
 	}
 
 	if (mSuneku != 0)
@@ -624,9 +855,6 @@ void Game::draw(Renderer& renderer)
 	{
 		mSunekuHitboxDebug->draw(renderer);
 	}
-
-	renderer.drawWorldLineSegments(
-		kTutorialWireFlat.data(), kTutorialWireSegmentCount, 1.0f, 0.0f, 0.0f, 1.0f);
 
 	if (mShowSunekuHitbox && mWallNoisePulseActive && mWallNoisePulseMaxR > 1.0f)
 	{
@@ -648,17 +876,18 @@ void Game::draw(Renderer& renderer)
 		}
 	}
 
+	if (mVersionSprite != 0)
 	{
-		const float er = kOcelotBodyRadius;
-		if (mOcelotAwake)
-		{
-			drawWorldCircleOutline(renderer, mOcelotX, mOcelotY, er, 36, 1.0f, 0.32f, 0.08f, 1.0f);
-			drawWorldCircleOutline(renderer, mOcelotX, mOcelotY, er * 0.55f, 24, 1.0f, 0.55f, 0.2f, 0.85f);
-		}
-		else
-		{
-			drawWorldCircleOutline(renderer, mOcelotX, mOcelotY, er, 36, 0.42f, 0.45f, 0.5f, 0.75f);
-		}
+		const float viewW = static_cast<float>(renderer.getWidth());
+		const float viewH = static_cast<float>(renderer.getHeight());
+		const float margin = 14.0f;
+		const int sw = mVersionSprite->getWidth();
+		const int sh = mVersionSprite->getHeight();
+		const float cx = mCameraX + viewW - margin - static_cast<float>(sw) * 0.5f;
+		const float cy = mCameraY + margin + static_cast<float>(sh) * 0.5f;
+		mVersionSprite->setX(static_cast<int>(cx));
+		mVersionSprite->setY(static_cast<int>(cy));
+		mVersionSprite->draw(renderer);
 	}
 
 	renderer.present();

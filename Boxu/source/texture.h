@@ -9,6 +9,7 @@ public:
 	~Texture();
 
 	bool initialize(const char* filename);
+	bool initializeFromRgba(int width, int height, const unsigned char* rgbaPixels);
 
 	void setActive();
 

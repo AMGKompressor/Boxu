@@ -19,7 +19,11 @@ Texture::Texture()
 
 Texture::~Texture()
 {
-	glDeleteTextures(1, &mTextureId);
+	if (mTextureId != 0)
+	{
+		glDeleteTextures(1, &mTextureId);
+		mTextureId = 0;
+	}
 }
 
 bool Texture::initialize(const char* filename)
@@ -62,6 +66,40 @@ bool Texture::initialize(const char* filename)
 		return false;
 	}
 
+	return true;
+}
+
+bool Texture::initializeFromRgba(int width, int height, const unsigned char* rgbaPixels)
+{
+	if (width <= 0 || height <= 0 || rgbaPixels == nullptr)
+	{
+		return false;
+	}
+
+	if (mTextureId != 0)
+	{
+		glDeleteTextures(1, &mTextureId);
+		mTextureId = 0;
+	}
+
+	mWidth = width;
+	mHeight = height;
+
+	glGenTextures(1, &mTextureId);
+	glBindTexture(GL_TEXTURE_2D, mTextureId);
+	glTexImage2D(
+		GL_TEXTURE_2D,
+		0,
+		GL_RGBA,
+		mWidth,
+		mHeight,
+		0,
+		GL_RGBA,
+		GL_UNSIGNED_BYTE,
+		rgbaPixels);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+	glBindTexture(GL_TEXTURE_2D, 0);
 	return true;
 }
 

@@ -10,6 +10,8 @@ Boxu/temp/
 *.dSYM/
 
 docs/*.md
+# Private dev / AI session notes (do not push)
+docs/boxuRoadMap.txt
 Boxu/DEV_ISSUES_LOG.txt
 studio5_smoketest/README.md
 

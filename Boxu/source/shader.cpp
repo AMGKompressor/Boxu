@@ -93,6 +93,41 @@ void Shader::setVector4Uniform(const char* name, float x, float y, float z, floa
 	glUniform4fv(location, 1, vec4);
 }
 
+void Shader::setFloatUniform(const char* name, float x)
+{
+	GLint location = glGetUniformLocation(mShaderProgram, name);
+	if (location < 0)
+	{
+		return;
+	}
+	glUniform1f(location, x);
+}
+
+void Shader::setIntUniform(const char* name, int value)
+{
+	GLint location = glGetUniformLocation(mShaderProgram, name);
+	if (location < 0)
+	{
+		return;
+	}
+	glUniform1i(location, value);
+}
+
+void Shader::setVec4ArrayUniform(const char* name, const float* vec4s, int count)
+{
+	if (vec4s == nullptr || count <= 0)
+	{
+		return;
+	}
+	const std::string base = std::string(name) + "[0]";
+	GLint location = glGetUniformLocation(mShaderProgram, base.c_str());
+	if (location < 0)
+	{
+		return;
+	}
+	glUniform4fv(location, count, vec4s);
+}
+
 bool Shader::compileShader(const std::string& fullPath, GLenum shaderType, GLuint& outShader)
 {
 	std::ifstream shaderFile(fullPath);

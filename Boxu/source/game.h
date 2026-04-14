@@ -10,6 +10,7 @@
 
 class Renderer;
 class Sprite;
+class Texture;
 
 class Game
 {
@@ -53,6 +54,8 @@ private:
 	Sprite* mFloor;
 	Sprite* mSuneku;
 	Sprite* mSunekuHitboxDebug;
+	Texture* mVersionTexture;
+	Sprite* mVersionSprite;
 	float mSunekuX;
 	float mSunekuY;
 	float mSunekuHitboxHalfW;
