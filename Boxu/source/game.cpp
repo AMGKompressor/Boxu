@@ -32,20 +32,26 @@ namespace
 	const float kOcelotChaseSpeed = 108.0f;
 	const float kOcelotStopDist = 72.0f;
 
-	// Wedge from Suneku facing; half-angle = half of total visible arc. H debug disables mask.
 	const float kVisionConeHalfAngleDeg = 40.0f;
 	const float kVisionConeFeatherDeg = 3.5f;
 	const float kVisionOutsideAlpha = 0.94f;
 
-	// Dark brown placeholder — readable on map, fits low-light stealth look.
 	const float kSunekuBodyBrownR = 0.24f;
 	const float kSunekuBodyBrownG = 0.14f;
 	const float kSunekuBodyBrownB = 0.085f;
 
-	// Interior floor (axis quad under gameplay art).
 	const float kMapFloorGreyR = 0.34f;
 	const float kMapFloorGreyG = 0.34f;
 	const float kMapFloorGreyB = 0.38f;
+
+	constexpr float kKeyCardWorldX = 1880.0f;
+	constexpr float kKeyCardWorldY = 540.0f;
+	constexpr float kKeyCardPickupRadius = 52.0f;
+	constexpr float kMissionExtractCenterX = 2000.0f;
+	constexpr float kMissionExtractCenterY = 1120.0f;
+	constexpr float kMissionExtractHalfW = 130.0f;
+	constexpr float kMissionExtractHalfH = 88.0f;
+	constexpr float kMissionCatchDistance = 66.0f;
 
 	void drawWorldCircleOutline(
 		Renderer& renderer,
@@ -73,7 +79,6 @@ namespace
 		renderer.drawWorldLineLoop(xy, segments, cr, cg, cb, ca);
 	}
 
-	// AABB half-extents for a centered rect (halfW, halfH) rotated by angleDeg (Sprite convention).
 	void orientedRectWorldAabbHalfExtents(float halfW, float halfH, float angleDeg, float& outHalfX, float& outHalfY)
 	{
 		const float rad = angleDeg * 3.14159265f / 180.0f;
@@ -102,9 +107,8 @@ namespace
 	static_assert(
 		static_cast<int>(kTutorialWireFlat.size()) == kTutorialWireSegmentCount * 4,
 		"wall flat buffer must hold 4 floats per segment");
-	static_assert(kTutorialWireSegmentCount == Game::kTutorialWallPhysicsSegmentCount, "layout vs game.h wall count");
+	static_assert(kTutorialWireSegmentCount == Game::kTutorialWallPhysicsSegmentCount, 		"layout vs game.h wall count");
 
-	// OBB half-extent along inward normal N (same basis as Renderer::drawSprite).
 	float obbExtentAlongInwardNormal(float nx, float ny, float localHalfW, float localHalfH, float angleDeg)
 	{
 		const float rad = angleDeg * 3.14159265f / 180.0f;
@@ -252,6 +256,90 @@ namespace
 		case 'h':
 			rows = {16, 16, 16, 31, 17, 17, 17};
 			return true;
+		case 'A':
+			rows = {14, 17, 17, 31, 17, 17, 17};
+			return true;
+		case 'B':
+			rows = {30, 17, 17, 30, 17, 17, 30};
+			return true;
+		case 'C':
+			rows = {14, 17, 16, 16, 16, 17, 14};
+			return true;
+		case 'D':
+			rows = {30, 17, 17, 17, 17, 17, 30};
+			return true;
+		case 'E':
+			rows = {31, 16, 28, 16, 16, 16, 31};
+			return true;
+		case 'F':
+			rows = {31, 16, 28, 16, 16, 16, 16};
+			return true;
+		case 'G':
+			rows = {14, 17, 16, 23, 17, 17, 14};
+			return true;
+		case 'H':
+			rows = {17, 17, 17, 31, 17, 17, 17};
+			return true;
+		case 'I':
+			rows = {14, 4, 4, 4, 4, 4, 14};
+			return true;
+		case 'J':
+			rows = {30, 1, 1, 1, 17, 17, 14};
+			return true;
+		case 'K':
+			rows = {17, 18, 20, 24, 20, 18, 17};
+			return true;
+		case 'L':
+			rows = {16, 16, 16, 16, 16, 16, 31};
+			return true;
+		case 'M':
+			rows = {17, 27, 21, 17, 17, 17, 17};
+			return true;
+		case 'N':
+			rows = {17, 19, 21, 25, 17, 17, 17};
+			return true;
+		case 'O':
+			rows = {14, 17, 17, 17, 17, 17, 14};
+			return true;
+		case 'P':
+			rows = {30, 17, 17, 30, 16, 16, 16};
+			return true;
+		case 'Q':
+			rows = {14, 17, 17, 21, 19, 17, 14};
+			return true;
+		case 'R':
+			rows = {30, 17, 17, 30, 20, 18, 17};
+			return true;
+		case 'S':
+			rows = {14, 17, 16, 14, 1, 17, 14};
+			return true;
+		case 'T':
+			rows = {31, 4, 4, 4, 4, 4, 4};
+			return true;
+		case 'U':
+			rows = {17, 17, 17, 17, 17, 17, 14};
+			return true;
+		case 'V':
+			rows = {17, 17, 17, 17, 10, 10, 4};
+			return true;
+		case 'W':
+			rows = {17, 17, 17, 17, 21, 27, 17};
+			return true;
+		case 'X':
+			rows = {17, 17, 10, 4, 10, 17, 17};
+			return true;
+		case 'Y':
+			rows = {17, 17, 10, 4, 4, 4, 4};
+			return true;
+		case 'Z':
+			rows = {31, 1, 2, 4, 8, 16, 31};
+			return true;
+		case ':':
+			rows = {0, 12, 12, 0, 12, 12, 0};
+			return true;
+		case '=':
+			rows = {0, 0, 31, 0, 31, 0, 0};
+			return true;
 		default:
 			return false;
 		}
@@ -285,54 +373,8 @@ namespace
 		buf[u + 3] = static_cast<unsigned char>(static_cast<float>(a) * fa + ba * inv);
 	}
 
-	bool buildVersionLabelRgba(const char* text, int scale, int pad, int gap, std::vector<unsigned char>& rgba, int& outW, int& outH)
+	void flipImageRowsY(std::vector<unsigned char>& rgba, int outW, int outH)
 	{
-		const int n = static_cast<int>(std::strlen(text));
-		if (n <= 0 || scale < 1)
-		{
-			return false;
-		}
-		const int cell = 5 * scale;
-		const int rowH = 7 * scale;
-		outW = pad * 2 + n * cell + (n - 1) * gap;
-		outH = pad * 2 + rowH;
-		rgba.assign(static_cast<std::size_t>(outW * outH * 4), 0);
-
-		int penX = pad;
-		const int penY = pad;
-		for (int ci = 0; ci < n; ++ci)
-		{
-			const char c = text[static_cast<std::size_t>(ci)];
-			std::array<std::uint8_t, 7> gr{};
-			if (!glyphRows5x7(c, gr))
-			{
-				gr.fill(0);
-			}
-			for (int py = 0; py < 7; ++py)
-			{
-				for (int px = 0; px < 5; ++px)
-				{
-					const int bit = (gr[static_cast<std::size_t>(py)] >> (4 - px)) & 1;
-					if (bit == 0)
-					{
-						continue;
-					}
-					for (int sy = 0; sy < scale; ++sy)
-					{
-						for (int sx = 0; sx < scale; ++sx)
-						{
-							const int x0 = penX + px * scale + sx;
-							const int y0 = penY + py * scale + sy;
-							setRgbaPixel(rgba, outW, outH, x0 + 1, y0 + 1, 0, 0, 0, 200);
-							setRgbaPixel(rgba, outW, outH, x0, y0, 236, 236, 236, 252);
-						}
-					}
-				}
-			}
-			penX += cell + gap;
-		}
-
-		// OpenGL samples v=0 from first image row; flip so label reads upright on screen.
 		for (int y = 0; y < outH / 2; ++y)
 		{
 			const int y2 = outH - 1 - y;
@@ -346,6 +388,141 @@ namespace
 				}
 			}
 		}
+	}
+
+	bool buildLabelRgbaMultiline(
+		const char* text,
+		int scale,
+		int pad,
+		int charGap,
+		int lineGap,
+		std::vector<unsigned char>& rgba,
+		int& outW,
+		int& outH)
+	{
+		if (text == nullptr || text[0] == '\0' || scale < 1)
+		{
+			return false;
+		}
+		const int rowH = 7 * scale;
+		const int cellW = 5 * scale + charGap;
+		int lineCount = 1;
+		for (const char* t = text; *t != '\0'; ++t)
+		{
+			if (*t == '\n')
+			{
+				++lineCount;
+			}
+		}
+		int maxPixW = 0;
+		const char* scan = text;
+		while (*scan != '\0')
+		{
+			const char* lineStart = scan;
+			while (*scan != '\0' && *scan != '\n')
+			{
+				++scan;
+			}
+			const int len = static_cast<int>(scan - lineStart);
+			const int lineW = (len <= 0) ? (pad * 2) : (pad * 2 + len * cellW - charGap);
+			if (lineW > maxPixW)
+			{
+				maxPixW = lineW;
+			}
+			if (*scan == '\n')
+			{
+				++scan;
+			}
+		}
+		outW = maxPixW;
+		outH = pad * 2 + lineCount * rowH + (lineCount - 1) * lineGap;
+		rgba.assign(static_cast<std::size_t>(outW * outH * 4), 0);
+
+		const char* p = text;
+		int penY = pad;
+		while (*p != '\0')
+		{
+			const char* lineStart = p;
+			while (*p != '\0' && *p != '\n')
+			{
+				++p;
+			}
+			const int len = static_cast<int>(p - lineStart);
+			const int linePixelW = (len <= 0) ? (pad * 2) : (pad * 2 + len * cellW - charGap);
+			int penX = pad + (outW - linePixelW) / 2;
+			for (int ci = 0; ci < len; ++ci)
+			{
+				const char ch = lineStart[ci];
+				std::array<std::uint8_t, 7> gr{};
+				if (!glyphRows5x7(ch, gr))
+				{
+					gr.fill(0);
+				}
+				for (int py = 0; py < 7; ++py)
+				{
+					for (int px = 0; px < 5; ++px)
+					{
+						const int bit = (gr[static_cast<std::size_t>(py)] >> (4 - px)) & 1;
+						if (bit == 0)
+						{
+							continue;
+						}
+						for (int sy = 0; sy < scale; ++sy)
+						{
+							for (int sx = 0; sx < scale; ++sx)
+							{
+								const int x0 = penX + px * scale + sx;
+								const int y0 = penY + py * scale + sy;
+								setRgbaPixel(rgba, outW, outH, x0 + 1, y0 + 1, 0, 0, 0, 200);
+								setRgbaPixel(rgba, outW, outH, x0, y0, 236, 236, 236, 252);
+							}
+						}
+					}
+				}
+				penX += cellW;
+			}
+			if (*p == '\n')
+			{
+				++p;
+			}
+			penY += rowH + lineGap;
+		}
+
+		flipImageRowsY(rgba, outW, outH);
+		return true;
+	}
+
+	bool tryCreateLabelSprite(Texture*& tex, Sprite*& spr, const char* text, int scale, int lineGap)
+	{
+		std::vector<unsigned char> buf;
+		int w = 0;
+		int h = 0;
+		if (!buildLabelRgbaMultiline(text, scale, 4, 3, lineGap, buf, w, h))
+		{
+			return false;
+		}
+		tex = new Texture();
+		if (!tex->initializeFromRgba(w, h, buf.data()))
+		{
+			delete tex;
+			tex = 0;
+			return false;
+		}
+		spr = new Sprite();
+		if (!spr->initialize(*tex))
+		{
+			delete spr;
+			spr = 0;
+			delete tex;
+			tex = 0;
+			return false;
+		}
+		spr->setAngle(0.0f);
+		spr->setScale(1.0f);
+		spr->setRedTint(1.0f);
+		spr->setGreenTint(1.0f);
+		spr->setBlueTint(1.0f);
+		spr->setAlpha(1.0f);
 		return true;
 	}
 }
@@ -374,6 +551,12 @@ Game::Game()
 	, mSunekuHitboxDebug(0)
 	, mVersionTexture(0)
 	, mVersionSprite(0)
+	, mHudObjectiveTexture(0)
+	, mHudObjectiveSprite(0)
+	, mHudWinTexture(0)
+	, mHudWinSprite(0)
+	, mHudLoseTexture(0)
+	, mHudLoseSprite(0)
 	, mSunekuX(0.0f)
 	, mSunekuY(0.0f)
 	, mSunekuHitboxHalfW(48.0f)
@@ -409,6 +592,14 @@ Game::Game()
 	, mOcelotX(kOcelotSpawnX)
 	, mOcelotY(kOcelotSpawnY)
 	, mOcelotAwake(false)
+	, mMissionState(MissionState::Playing)
+	, mHasKeyCard(false)
+	, mKeyCardX(kKeyCardWorldX)
+	, mKeyCardY(kKeyCardWorldY)
+	, mExtractCenterX(kMissionExtractCenterX)
+	, mExtractCenterY(kMissionExtractCenterY)
+	, mExtractHalfW(kMissionExtractHalfW)
+	, mExtractHalfH(kMissionExtractHalfH)
 {
 }
 
@@ -429,6 +620,19 @@ Game::~Game()
 	mVersionSprite = 0;
 	delete mVersionTexture;
 	mVersionTexture = 0;
+
+	delete mHudObjectiveSprite;
+	mHudObjectiveSprite = 0;
+	delete mHudObjectiveTexture;
+	mHudObjectiveTexture = 0;
+	delete mHudWinSprite;
+	mHudWinSprite = 0;
+	delete mHudWinTexture;
+	mHudWinTexture = 0;
+	delete mHudLoseSprite;
+	mHudLoseSprite = 0;
+	delete mHudLoseTexture;
+	mHudLoseTexture = 0;
 
 	delete mRenderer;
 	mRenderer = 0;
@@ -515,7 +719,7 @@ bool Game::initialize()
 	int vrW = 0;
 	int vrH = 0;
 	const char* kVersionOverlayText = "0.1 alpha";
-	if (!buildVersionLabelRgba(kVersionOverlayText, 3, 4, 3, versionRgba, vrW, vrH))
+	if (!buildLabelRgbaMultiline(kVersionOverlayText, 3, 4, 3, 0, versionRgba, vrW, vrH))
 	{
 		LogManager::getInstance().log("Version label raster failed.");
 		delete mVersionSprite;
@@ -549,6 +753,25 @@ bool Game::initialize()
 		mVersionSprite->setAlpha(0.95f);
 	}
 
+	if (!tryCreateLabelSprite(
+			mHudObjectiveTexture,
+			mHudObjectiveSprite,
+			"GET KEY CARD\nGO SOUTH TO EXIT\nR: RESTART",
+			2,
+			4))
+	{
+		LogManager::getInstance().log("HUD objective label failed to build.");
+	}
+	if (!tryCreateLabelSprite(mHudWinTexture, mHudWinSprite, "MISSION\nCOMPLETE\nPRESS R", 4, 6))
+	{
+		LogManager::getInstance().log("HUD win label failed to build.");
+	}
+	if (!tryCreateLabelSprite(mHudLoseTexture, mHudLoseSprite, "CAUGHT\nPRESS R", 4, 6))
+	{
+		LogManager::getInstance().log("HUD lose label failed to build.");
+	}
+
+	resetMission();
 	return true;
 }
 
@@ -572,6 +795,10 @@ bool Game::doGameLoop()
 			else if (event.key.keysym.scancode == SDL_SCANCODE_H)
 			{
 				mShowSunekuHitbox = !mShowSunekuHitbox;
+			}
+			else if (event.key.keysym.scancode == SDL_SCANCODE_R)
+			{
+				resetMission();
 			}
 		}
 	}
@@ -609,6 +836,44 @@ bool Game::doGameLoop()
 	return mLooping;
 }
 
+void Game::resetMission()
+{
+	mMissionState = MissionState::Playing;
+	mHasKeyCard = false;
+	mOcelotX = kOcelotSpawnX;
+	mOcelotY = kOcelotSpawnY;
+	mOcelotAwake = false;
+	mKeyCardX = kKeyCardWorldX;
+	mKeyCardY = kKeyCardWorldY;
+	mExtractCenterX = kMissionExtractCenterX;
+	mExtractCenterY = kMissionExtractCenterY;
+	mExtractHalfW = kMissionExtractHalfW;
+	mExtractHalfH = kMissionExtractHalfH;
+	mWallNoisePulseActive = false;
+	mWallNoisePulseAge = 0.0f;
+	mLastWallHitNoiseRadius = 0.0f;
+	mOutlineWallPrevTouch.fill(false);
+
+	if (mSuneku != 0)
+	{
+		mSunekuX = (Game::kTutorialEntryWestX + Game::kTutorialEntryEastX) * 0.5f;
+		mSunekuY = 900.0f;
+		mSunekuMoveSpeed = kWalkMoveSpeed;
+		mSuneku->setX(static_cast<int>(mSunekuX));
+		mSuneku->setY(static_cast<int>(mSunekuY));
+		if (mSunekuHitboxDebug != 0)
+		{
+			mSunekuHitboxDebug->setX(static_cast<int>(mSunekuX));
+			mSunekuHitboxDebug->setY(static_cast<int>(mSunekuY));
+		}
+	}
+	if (mRenderer != 0)
+	{
+		updateCamera();
+		mRenderer->setCamera(mCameraX, mCameraY);
+	}
+}
+
 void Game::process(float deltaTime)
 {
 	if (deltaTime < 0.0f)
@@ -624,6 +889,12 @@ void Game::process(float deltaTime)
 
 	if (mSuneku != 0)
 	{
+		if (mMissionState != MissionState::Playing)
+		{
+			updateCamera();
+			mRenderer->setCamera(mCameraX, mCameraY);
+			return;
+		}
 		SDL_PumpEvents();
 		updateSunekuFacingTowardMouse(deltaTime);
 		mSuneku->setAngle(mSunekuFacingDeg);
@@ -789,6 +1060,39 @@ void Game::process(float deltaTime)
 			if (mOcelotY > mMapHeight - er) { mOcelotY = mMapHeight - er; }
 		}
 
+		if (mMissionState == MissionState::Playing)
+		{
+			if (!mHasKeyCard)
+			{
+				const float kdx = mSunekuX - mKeyCardX;
+				const float kdy = mSunekuY - mKeyCardY;
+				if (kdx * kdx + kdy * kdy <= kKeyCardPickupRadius * kKeyCardPickupRadius)
+				{
+					mHasKeyCard = true;
+				}
+			}
+
+			if (mOcelotAwake)
+			{
+				const float odx = mSunekuX - mOcelotX;
+				const float ody = mSunekuY - mOcelotY;
+				if (odx * odx + ody * ody <= kMissionCatchDistance * kMissionCatchDistance)
+				{
+					mMissionState = MissionState::Lost;
+				}
+			}
+
+			if (mMissionState == MissionState::Playing && mHasKeyCard)
+			{
+				const float ax = std::fabs(mSunekuX - mExtractCenterX);
+				const float ay = std::fabs(mSunekuY - mExtractCenterY);
+				if (ax <= mExtractHalfW && ay <= mExtractHalfH)
+				{
+					mMissionState = MissionState::Won;
+				}
+			}
+		}
+
 		updateCamera();
 		mRenderer->setCamera(mCameraX, mCameraY);
 	}
@@ -819,6 +1123,55 @@ void Game::draw(Renderer& renderer)
 		kTutorialWireFlat.data(), kTutorialWireSegmentCount, 1.0f, 0.0f, 0.0f, 1.0f);
 
 	{
+		const float exA = mHasKeyCard ? 0.22f : 0.12f;
+		renderer.drawWorldAxisAlignedQuad(
+			mExtractCenterX,
+			mExtractCenterY,
+			mExtractHalfW,
+			mExtractHalfH,
+			0.15f,
+			0.75f,
+			0.35f,
+			exA);
+		if (mHasKeyCard)
+		{
+			const float x0 = mExtractCenterX - mExtractHalfW;
+			const float y0 = mExtractCenterY - mExtractHalfH;
+			const float x1 = mExtractCenterX + mExtractHalfW;
+			const float y1 = mExtractCenterY + mExtractHalfH;
+			const float rect[] = {
+				x0, y0, x1, y0,
+				x1, y0, x1, y1,
+				x1, y1, x0, y1,
+				x0, y1, x0, y0
+			};
+			renderer.drawWorldLineSegments(rect, 4, 0.3f, 1.0f, 0.45f, 0.95f);
+		}
+	}
+
+	if (!mHasKeyCard)
+	{
+		renderer.drawWorldAxisAlignedQuad(
+			mKeyCardX,
+			mKeyCardY,
+			22.0f,
+			14.0f,
+			0.25f,
+			0.55f,
+			0.95f,
+			0.92f);
+		renderer.drawWorldAxisAlignedQuad(
+			mKeyCardX + 6.0f,
+			mKeyCardY - 2.0f,
+			10.0f,
+			6.0f,
+			0.95f,
+			0.95f,
+			0.95f,
+			0.5f);
+	}
+
+	{
 		const float er = kOcelotBodyRadius;
 		if (mOcelotAwake)
 		{
@@ -831,7 +1184,6 @@ void Game::draw(Renderer& renderer)
 		}
 	}
 
-	// Vision mask sits under Suneku so the body is not tinted by the wedge; world stays cone-lit.
 	if (!mShowSunekuHitbox)
 	{
 		renderer.drawVisionConeMask(
@@ -876,11 +1228,43 @@ void Game::draw(Renderer& renderer)
 		}
 	}
 
+	const float viewW = static_cast<float>(renderer.getWidth());
+	const float viewH = static_cast<float>(renderer.getHeight());
+	const float margin = 14.0f;
+
+	if (mHudObjectiveSprite != 0 && mMissionState == MissionState::Playing)
+	{
+		const int ow = mHudObjectiveSprite->getWidth();
+		const int oh = mHudObjectiveSprite->getHeight();
+		const float ocx = mCameraX + margin + static_cast<float>(ow) * 0.5f;
+		const float ocy = mCameraY + viewH - margin - static_cast<float>(oh) * 0.5f;
+		mHudObjectiveSprite->setX(static_cast<int>(ocx));
+		mHudObjectiveSprite->setY(static_cast<int>(ocy));
+		mHudObjectiveSprite->setAlpha(0.92f);
+		mHudObjectiveSprite->draw(renderer);
+	}
+
+	if (mMissionState == MissionState::Won && mHudWinSprite != 0)
+	{
+		const float wcx = mCameraX + viewW * 0.5f;
+		const float wcy = mCameraY + viewH * 0.5f;
+		mHudWinSprite->setX(static_cast<int>(wcx));
+		mHudWinSprite->setY(static_cast<int>(wcy));
+		mHudWinSprite->setAlpha(1.0f);
+		mHudWinSprite->draw(renderer);
+	}
+	else if (mMissionState == MissionState::Lost && mHudLoseSprite != 0)
+	{
+		const float lcx = mCameraX + viewW * 0.5f;
+		const float lcy = mCameraY + viewH * 0.5f;
+		mHudLoseSprite->setX(static_cast<int>(lcx));
+		mHudLoseSprite->setY(static_cast<int>(lcy));
+		mHudLoseSprite->setAlpha(1.0f);
+		mHudLoseSprite->draw(renderer);
+	}
+
 	if (mVersionSprite != 0)
 	{
-		const float viewW = static_cast<float>(renderer.getWidth());
-		const float viewH = static_cast<float>(renderer.getHeight());
-		const float margin = 14.0f;
 		const int sw = mVersionSprite->getWidth();
 		const int sh = mVersionSprite->getHeight();
 		const float cx = mCameraX + viewW - margin - static_cast<float>(sw) * 0.5f;

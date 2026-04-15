@@ -7,6 +7,12 @@
 
 #include "level_layout.h"
 
+enum class MissionState
+{
+	Playing,
+	Won,
+	Lost
+};
 
 class Renderer;
 class Sprite;
@@ -42,6 +48,7 @@ protected:
 	bool tryInitWallHitAudio();
 	void shutdownWallHitAudio();
 	void playWallHitSoundIfReady();
+	void resetMission();
 
 private:
 	Game();
@@ -56,6 +63,12 @@ private:
 	Sprite* mSunekuHitboxDebug;
 	Texture* mVersionTexture;
 	Sprite* mVersionSprite;
+	Texture* mHudObjectiveTexture;
+	Sprite* mHudObjectiveSprite;
+	Texture* mHudWinTexture;
+	Sprite* mHudWinSprite;
+	Texture* mHudLoseTexture;
+	Sprite* mHudLoseSprite;
 	float mSunekuX;
 	float mSunekuY;
 	float mSunekuHitboxHalfW;
@@ -88,7 +101,6 @@ private:
 
 	std::array<bool, kTutorialWallPhysicsSegmentCount> mOutlineWallPrevTouch;
 
-	// Suneku wall strike — noise radius for future AI (walk vs sprint). Pulse ring when H shows hitbox.
 	float mLastWallHitNoiseRadius;
 	float mWallNoisePulseAge;
 	float mWallNoisePulseMaxR;
@@ -96,10 +108,18 @@ private:
 	float mWallNoisePulseCy;
 	bool mWallNoisePulseActive;
 
-	// Ocelot: sleeps until a wall-hit noise wave reaches him, then chases Suneku.
 	float mOcelotX;
 	float mOcelotY;
 	bool mOcelotAwake;
+
+	MissionState mMissionState;
+	bool mHasKeyCard;
+	float mKeyCardX;
+	float mKeyCardY;
+	float mExtractCenterX;
+	float mExtractCenterY;
+	float mExtractHalfW;
+	float mExtractHalfH;
 };
 
 #endif // __GAME_H_
