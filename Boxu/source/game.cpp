@@ -30,7 +30,13 @@ namespace
 	const float kOcelotSpawnY = 480.0f;
 	const float kOcelotBodyRadius = 38.0f;
 	const float kOcelotChaseSpeed = 108.0f;
+	const float kOcelotInvestigateSpeed = 90.0f;
+	const float kOcelotSearchSpeed = 82.0f;
 	const float kOcelotStopDist = 72.0f;
+	const float kOcelotVisionRange = 520.0f;
+	const float kOcelotVisionHalfAngleDeg = 40.0f;
+	const float kOcelotSearchDuration = 2.2f;
+	const float kOcelotHearRadiusDefault = 320.0f;
 
 	const float kVisionConeHalfAngleDeg = 40.0f;
 	const float kVisionConeFeatherDeg = 3.5f;
@@ -226,6 +232,123 @@ namespace
 			px += pushNx * (-worstMargin);
 			py += pushNy * (-worstMargin);
 		}
+	}
+
+	float wrap360(float deg)
+	{
+		while (deg >= 360.0f)
+		{
+			deg -= 360.0f;
+		}
+		while (deg < 0.0f)
+		{
+			deg += 360.0f;
+		}
+		return deg;
+	}
+
+	float shortestAngleDeltaDegrees(float fromDeg, float toDeg)
+	{
+		float d = toDeg - fromDeg;
+		while (d > 180.0f)
+		{
+			d -= 360.0f;
+		}
+		while (d < -180.0f)
+		{
+			d += 360.0f;
+		}
+		return d;
+	}
+
+	bool segmentsIntersect2D(
+		float ax,
+		float ay,
+		float bx,
+		float by,
+		float cx,
+		float cy,
+		float dx,
+		float dy)
+	{
+		const float rX = bx - ax;
+		const float rY = by - ay;
+		const float sX = dx - cx;
+		const float sY = dy - cy;
+		const float rxs = rX * sY - rY * sX;
+		const float qpx = cx - ax;
+		const float qpy = cy - ay;
+		const float qpxr = qpx * rY - qpy * rX;
+
+		if (std::fabs(rxs) < 1.0e-6f && std::fabs(qpxr) < 1.0e-6f)
+		{
+			return false;
+		}
+		if (std::fabs(rxs) < 1.0e-6f)
+		{
+			return false;
+		}
+
+		const float t = (qpx * sY - qpy * sX) / rxs;
+		const float u = (qpx * rY - qpy * rX) / rxs;
+		return t >= 0.02f && t <= 0.98f && u >= 0.0f && u <= 1.0f;
+	}
+
+	void drawWorldConeOutline(
+		Renderer& renderer,
+		float cx,
+		float cy,
+		float facingDeg,
+		float halfAngleDeg,
+		float radius,
+		float r,
+		float g,
+		float b,
+		float a)
+	{
+		const int arcSegs = 18;
+		const int n = arcSegs + 2;
+		float xy[40];
+		xy[0] = cx;
+		xy[1] = cy;
+		const float startDeg = facingDeg - halfAngleDeg;
+		const float arcDeg = halfAngleDeg * 2.0f;
+		for (int i = 0; i <= arcSegs; ++i)
+		{
+			const float t = static_cast<float>(i) / static_cast<float>(arcSegs);
+			const float deg = startDeg + arcDeg * t;
+			const float rad = deg * 3.14159265f / 180.0f;
+			xy[(i + 1) * 2 + 0] = cx + std::cos(rad) * radius;
+			xy[(i + 1) * 2 + 1] = cy - std::sin(rad) * radius;
+		}
+		renderer.drawWorldLineLoop(xy, n, r, g, b, a);
+	}
+
+	void drawWorldCircleFillApprox(
+		Renderer& renderer,
+		float cx,
+		float cy,
+		float radius,
+		float r,
+		float g,
+		float b,
+		float a)
+	{
+		const int rows = 30;
+		float segs[rows * 4];
+		int used = 0;
+		for (int i = 0; i < rows; ++i)
+		{
+			const float t = static_cast<float>(i) / static_cast<float>(rows - 1);
+			const float y = -radius + (2.0f * radius) * t;
+			const float x = std::sqrt(std::max(0.0f, radius * radius - y * y));
+			segs[used * 4 + 0] = cx - x;
+			segs[used * 4 + 1] = cy + y;
+			segs[used * 4 + 2] = cx + x;
+			segs[used * 4 + 3] = cy + y;
+			++used;
+		}
+		renderer.drawWorldLineSegments(segs, used, r, g, b, a);
 	}
 
 	bool glyphRows5x7(char c, std::array<std::uint8_t, 7>& rows)
@@ -591,7 +714,15 @@ Game::Game()
 	, mWallNoisePulseActive(false)
 	, mOcelotX(kOcelotSpawnX)
 	, mOcelotY(kOcelotSpawnY)
-	, mOcelotAwake(false)
+	, mOcelotFacingDeg(180.0f)
+	, mOcelotInvestigateX(kOcelotSpawnX)
+	, mOcelotInvestigateY(kOcelotSpawnY)
+	, mOcelotLastSeenX(kOcelotSpawnX)
+	, mOcelotLastSeenY(kOcelotSpawnY)
+	, mOcelotSearchTimer(0.0f)
+	, mOcelotHearingRadius(kOcelotHearRadiusDefault)
+	, mOcelotAwake(true)
+	, mOcelotState(OcelotState::Investigate)
 	, mMissionState(MissionState::Playing)
 	, mHasKeyCard(false)
 	, mKeyCardX(kKeyCardWorldX)
@@ -842,7 +973,15 @@ void Game::resetMission()
 	mHasKeyCard = false;
 	mOcelotX = kOcelotSpawnX;
 	mOcelotY = kOcelotSpawnY;
-	mOcelotAwake = false;
+	mOcelotFacingDeg = 180.0f;
+	mOcelotInvestigateX = mOcelotX;
+	mOcelotInvestigateY = mOcelotY;
+	mOcelotLastSeenX = mOcelotX;
+	mOcelotLastSeenY = mOcelotY;
+	mOcelotSearchTimer = 0.0f;
+	mOcelotHearingRadius = kOcelotHearRadiusDefault;
+	mOcelotAwake = true;
+	mOcelotState = OcelotState::Investigate;
 	mKeyCardX = kKeyCardWorldX;
 	mKeyCardY = kKeyCardWorldY;
 	mExtractCenterX = kMissionExtractCenterX;
@@ -1016,6 +1155,23 @@ void Game::process(float deltaTime)
 				if (edx * edx + edy * edy <= noiseR * noiseR)
 				{
 					mOcelotAwake = true;
+					mOcelotState = OcelotState::Investigate;
+					mOcelotInvestigateX = clampedX;
+					mOcelotInvestigateY = clampedY;
+					mOcelotHearingRadius = noiseR;
+				}
+			}
+			else
+			{
+				const float edx = mOcelotX - clampedX;
+				const float edy = mOcelotY - clampedY;
+				const float noiseR = mLastWallHitNoiseRadius;
+				if (edx * edx + edy * edy <= noiseR * noiseR)
+				{
+					mOcelotState = OcelotState::Investigate;
+					mOcelotInvestigateX = clampedX;
+					mOcelotInvestigateY = clampedY;
+					mOcelotHearingRadius = noiseR;
 				}
 			}
 		}
@@ -1040,25 +1196,7 @@ void Game::process(float deltaTime)
 			mSunekuHitboxDebug->setY(static_cast<int>(mSunekuY));
 		}
 
-		if (mOcelotAwake)
-		{
-			float edx = mSunekuX - mOcelotX;
-			float edy = mSunekuY - mOcelotY;
-			const float elenSq = edx * edx + edy * edy;
-			if (elenSq > kOcelotStopDist * kOcelotStopDist)
-			{
-				const float elen = std::sqrt(elenSq);
-				edx /= elen;
-				edy /= elen;
-				mOcelotX += edx * kOcelotChaseSpeed * deltaTime;
-				mOcelotY += edy * kOcelotChaseSpeed * deltaTime;
-			}
-			const float er = kOcelotBodyRadius;
-			if (mOcelotX < er) { mOcelotX = er; }
-			if (mOcelotY < er) { mOcelotY = er; }
-			if (mOcelotX > mMapWidth - er) { mOcelotX = mMapWidth - er; }
-			if (mOcelotY > mMapHeight - er) { mOcelotY = mMapHeight - er; }
-		}
+		updateOcelot(deltaTime);
 
 		if (mMissionState == MissionState::Playing)
 		{
@@ -1095,6 +1233,129 @@ void Game::process(float deltaTime)
 
 		updateCamera();
 		mRenderer->setCamera(mCameraX, mCameraY);
+	}
+}
+
+bool Game::hasWallOcclusion(float ax, float ay, float bx, float by) const
+{
+	for (int s = 0; s < kTutorialWireSegmentCount; ++s)
+	{
+		const int o = s * 4;
+		const float wx0 = kTutorialWireFlat[static_cast<std::size_t>(o + 0)];
+		const float wy0 = kTutorialWireFlat[static_cast<std::size_t>(o + 1)];
+		const float wx1 = kTutorialWireFlat[static_cast<std::size_t>(o + 2)];
+		const float wy1 = kTutorialWireFlat[static_cast<std::size_t>(o + 3)];
+		if (segmentsIntersect2D(ax, ay, bx, by, wx0, wy0, wx1, wy1))
+		{
+			return true;
+		}
+	}
+	return false;
+}
+
+void Game::updateOcelot(float deltaTime)
+{
+	if (!mOcelotAwake)
+	{
+		return;
+	}
+
+	const float toSunX = mSunekuX - mOcelotX;
+	const float toSunY = mSunekuY - mOcelotY;
+	const float distSq = toSunX * toSunX + toSunY * toSunY;
+	const bool inRange = distSq <= kOcelotVisionRange * kOcelotVisionRange;
+	bool inFov = false;
+	if (inRange)
+	{
+		const float targetDeg = wrap360(-std::atan2(toSunY, toSunX) * 57.2957795f);
+		const float deltaDeg = std::fabs(shortestAngleDeltaDegrees(mOcelotFacingDeg, targetDeg));
+		inFov = deltaDeg <= kOcelotVisionHalfAngleDeg;
+	}
+
+	const bool clearSight = inRange && inFov && !hasWallOcclusion(mOcelotX, mOcelotY, mSunekuX, mSunekuY);
+	if (clearSight)
+	{
+		mOcelotState = OcelotState::Chase;
+		mOcelotLastSeenX = mSunekuX;
+		mOcelotLastSeenY = mSunekuY;
+		mOcelotSearchTimer = kOcelotSearchDuration;
+	}
+	else if (mOcelotState == OcelotState::Chase)
+	{
+		mOcelotState = OcelotState::Search;
+	}
+
+	float targetX = mOcelotX;
+	float targetY = mOcelotY;
+	float moveSpeed = 0.0f;
+	if (mOcelotState == OcelotState::Chase)
+	{
+		targetX = mSunekuX;
+		targetY = mSunekuY;
+		moveSpeed = kOcelotChaseSpeed;
+	}
+	else if (mOcelotState == OcelotState::Investigate)
+	{
+		targetX = mOcelotInvestigateX;
+		targetY = mOcelotInvestigateY;
+		moveSpeed = kOcelotInvestigateSpeed;
+	}
+	else if (mOcelotState == OcelotState::Search)
+	{
+		targetX = mOcelotLastSeenX;
+		targetY = mOcelotLastSeenY;
+		moveSpeed = kOcelotSearchSpeed;
+	}
+
+	float dx = targetX - mOcelotX;
+	float dy = targetY - mOcelotY;
+	const float d2 = dx * dx + dy * dy;
+	if (d2 > kOcelotStopDist * kOcelotStopDist && moveSpeed > 0.0f)
+	{
+		const float d = std::sqrt(d2);
+		dx /= d;
+		dy /= d;
+		mOcelotX += dx * moveSpeed * deltaTime;
+		mOcelotY += dy * moveSpeed * deltaTime;
+		mOcelotFacingDeg = wrap360(-std::atan2(dy, dx) * 57.2957795f);
+	}
+
+	const float er = kOcelotBodyRadius;
+	if (mOcelotX < er) { mOcelotX = er; }
+	if (mOcelotY < er) { mOcelotY = er; }
+	if (mOcelotX > mMapWidth - er) { mOcelotX = mMapWidth - er; }
+	if (mOcelotY > mMapHeight - er) { mOcelotY = mMapHeight - er; }
+	constrainCenterToWireSegments(
+		mOcelotX,
+		mOcelotY,
+		kTutorialWireFlat.data(),
+		kTutorialWireSegmentCount,
+		kOcelotBodyRadius,
+		kOcelotBodyRadius,
+		0.0f);
+
+	if (mOcelotState == OcelotState::Investigate)
+	{
+		const float ix = mOcelotInvestigateX - mOcelotX;
+		const float iy = mOcelotInvestigateY - mOcelotY;
+		if (ix * ix + iy * iy <= kOcelotStopDist * kOcelotStopDist)
+		{
+			mOcelotState = OcelotState::Search;
+			mOcelotLastSeenX = mOcelotX;
+			mOcelotLastSeenY = mOcelotY;
+			mOcelotSearchTimer = kOcelotSearchDuration;
+		}
+	}
+	else if (mOcelotState == OcelotState::Search)
+	{
+		mOcelotSearchTimer -= deltaTime;
+		if (mOcelotSearchTimer <= 0.0f)
+		{
+			mOcelotState = OcelotState::Investigate;
+			mOcelotInvestigateX = kOcelotSpawnX;
+			mOcelotInvestigateY = kOcelotSpawnY;
+			mOcelotHearingRadius = kOcelotHearRadiusDefault;
+		}
 	}
 }
 
@@ -1182,6 +1443,41 @@ void Game::draw(Renderer& renderer)
 		{
 			drawWorldCircleOutline(renderer, mOcelotX, mOcelotY, er, 36, 0.42f, 0.45f, 0.5f, 0.75f);
 		}
+	}
+
+	drawWorldConeOutline(
+		renderer,
+		mOcelotX,
+		mOcelotY,
+		mOcelotFacingDeg,
+		kOcelotVisionHalfAngleDeg,
+		kOcelotVisionRange,
+		1.0f,
+		0.84f,
+		0.1f,
+		0.62f);
+
+	if (mShowSunekuHitbox && mOcelotAwake)
+	{
+		drawWorldCircleFillApprox(
+			renderer,
+			mOcelotX,
+			mOcelotY,
+			mOcelotHearingRadius,
+			0.2f,
+			0.65f,
+			1.0f,
+			0.16f);
+		drawWorldCircleOutline(
+			renderer,
+			mOcelotX,
+			mOcelotY,
+			mOcelotHearingRadius,
+			44,
+			0.2f,
+			0.65f,
+			1.0f,
+			0.55f);
 	}
 
 	if (!mShowSunekuHitbox)
@@ -1284,20 +1580,6 @@ namespace
 	const float kSunekuSpriteFacingOffsetDeg = 90.0f;
 	const float kFacingTurnSign = 1.0f;
 	const float kAimSnapDegrees = 1.25f;
-
-	float shortestAngleDeltaDegrees(float fromDeg, float toDeg)
-	{
-		float d = toDeg - fromDeg;
-		while (d > 180.0f)
-		{
-			d -= 360.0f;
-		}
-		while (d < -180.0f)
-		{
-			d += 360.0f;
-		}
-		return d;
-	}
 }
 
 void Game::updateSunekuFacingTowardMouse(float deltaTime)

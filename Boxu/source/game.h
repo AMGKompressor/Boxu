@@ -14,6 +14,14 @@ enum class MissionState
 	Lost
 };
 
+enum class OcelotState
+{
+	Dormant,
+	Investigate,
+	Chase,
+	Search
+};
+
 class Renderer;
 class Sprite;
 class Texture;
@@ -49,6 +57,8 @@ protected:
 	void shutdownWallHitAudio();
 	void playWallHitSoundIfReady();
 	void resetMission();
+	void updateOcelot(float deltaTime);
+	bool hasWallOcclusion(float ax, float ay, float bx, float by) const;
 
 private:
 	Game();
@@ -110,7 +120,15 @@ private:
 
 	float mOcelotX;
 	float mOcelotY;
+	float mOcelotFacingDeg;
+	float mOcelotInvestigateX;
+	float mOcelotInvestigateY;
+	float mOcelotLastSeenX;
+	float mOcelotLastSeenY;
+	float mOcelotSearchTimer;
+	float mOcelotHearingRadius;
 	bool mOcelotAwake;
+	OcelotState mOcelotState;
 
 	MissionState mMissionState;
 	bool mHasKeyCard;
