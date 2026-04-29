@@ -1053,7 +1053,7 @@ bool Game::initialize()
 	std::vector<unsigned char> versionRgba;
 	int vrW = 0;
 	int vrH = 0;
-	const char* kVersionOverlayText = "0.2 alpha";
+	const char* kVersionOverlayText = "0.4 alpha";
 	if (!buildLabelRgbaMultiline(kVersionOverlayText, 3, 4, 3, 0, versionRgba, vrW, vrH))
 	{
 		LogManager::getInstance().log("Version label raster failed.");
