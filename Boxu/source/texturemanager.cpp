@@ -5,7 +5,6 @@
 #include "texture.h"
 #include "logmanager.h"
 
-#include <cassert>
 #include <SDL.h>
 
 TextureManager::TextureManager()
@@ -45,7 +44,8 @@ Texture* TextureManager::getTexture(const char* filename)
 		if (!texture->initialize(filename))
 		{
 			LogManager::getInstance().log("Texture failed to initialize!");
-			assert(0);
+			delete texture;
+			return 0;
 		}
 
 		mLoadedTextures[filename] = texture;

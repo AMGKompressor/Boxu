@@ -3,11 +3,16 @@
 #include "game.h"
 
 #include <SDL.h>
+#include <SDL_filesystem.h>
 #include <algorithm>
 #include <array>
 #include <cmath>
 #include <cstddef>
+#include <cstdio>
 #include <cstring>
+#include <random>
+#include <limits>
+#include <numeric>
 #include <vector>
 
 #include "renderer.h"
@@ -37,6 +42,64 @@ namespace
 	const float kOcelotVisionHalfAngleDeg = 40.0f;
 	const float kOcelotSearchDuration = 2.2f;
 	const float kOcelotHearRadiusDefault = 320.0f;
+
+	const float kFootstepIntervalWalk = 0.42f;
+	const float kFootstepIntervalSprint = 0.14f;
+	const std::array<float, 8> kOcelotPatrolPointsL1 = {
+		2060.0f, 420.0f,
+		2390.0f, 760.0f,
+		2280.0f, 1260.0f,
+		1730.0f, 1080.0f
+	};
+	const std::array<float, 8> kOcelotPatrolPointsL2 = {
+		980.0f, 520.0f,
+		1840.0f, 520.0f,
+		2120.0f, 900.0f,
+		1180.0f, 1460.0f
+	};
+	const float kEnemyPatrolRoute0[] = {
+		1260.0f, 560.0f,
+		1540.0f, 560.0f,
+		1540.0f, 980.0f,
+		1260.0f, 980.0f
+	};
+	const float kEnemyPatrolRoute1[] = {
+		2140.0f, 980.0f,
+		2360.0f, 980.0f,
+		2360.0f, 1320.0f,
+		2140.0f, 1320.0f
+	};
+	const float kEnemyPatrolRoute2[] = {
+		2380.0f, 1520.0f,
+		2140.0f, 1520.0f,
+		2140.0f, 1680.0f,
+		2380.0f, 1680.0f
+	};
+
+	bool getEnemyPatrolRoute(int idx, const float*& outPts, int& outPointCount)
+	{
+		outPts = 0;
+		outPointCount = 0;
+		if (idx == 0)
+		{
+			outPts = kEnemyPatrolRoute0;
+			outPointCount = 4;
+			return true;
+		}
+		if (idx == 1)
+		{
+			outPts = kEnemyPatrolRoute1;
+			outPointCount = 4;
+			return true;
+		}
+		if (idx == 2)
+		{
+			outPts = kEnemyPatrolRoute2;
+			outPointCount = 4;
+			return true;
+		}
+		return false;
+	}
 
 	const float kVisionConeHalfAngleDeg = 40.0f;
 	const float kVisionConeFeatherDeg = 3.5f;
@@ -113,7 +176,26 @@ namespace
 	static_assert(
 		static_cast<int>(kTutorialWireFlat.size()) == kTutorialWireSegmentCount * 4,
 		"wall flat buffer must hold 4 floats per segment");
-	static_assert(kTutorialWireSegmentCount == Game::kTutorialWallPhysicsSegmentCount, 		"layout vs game.h wall count");
+	static constexpr float kFacilityWireFlat[] = {
+		120.0f, 120.0f, 2520.0f, 120.0f,
+		2520.0f, 120.0f, 2520.0f, 1760.0f,
+		2520.0f, 1760.0f, 120.0f, 1760.0f,
+		120.0f, 1760.0f, 120.0f, 120.0f,
+
+		900.0f, 120.0f, 900.0f, 700.0f,
+		900.0f, 980.0f, 900.0f, 1760.0f,
+
+		900.0f, 700.0f, 1240.0f, 700.0f,
+		1380.0f, 700.0f, 1700.0f, 700.0f,
+
+		1700.0f, 700.0f, 1700.0f, 1200.0f,
+		1700.0f, 1280.0f, 1700.0f, 1760.0f,
+
+		420.0f, 1200.0f, 760.0f, 1200.0f,
+		900.0f, 1200.0f, 1700.0f, 1200.0f
+	};
+	static constexpr int kFacilityWireSegmentCount =
+		static_cast<int>(sizeof(kFacilityWireFlat) / sizeof(kFacilityWireFlat[0]) / 4u);
 
 	float obbExtentAlongInwardNormal(float nx, float ny, float localHalfW, float localHalfH, float angleDeg)
 	{
@@ -360,6 +442,30 @@ namespace
 			return true;
 		case '1':
 			rows = {4, 12, 4, 4, 4, 4, 14};
+			return true;
+		case '2':
+			rows = {14, 17, 1, 2, 4, 8, 31};
+			return true;
+		case '3':
+			rows = {14, 17, 1, 6, 1, 17, 14};
+			return true;
+		case '4':
+			rows = {2, 6, 10, 18, 31, 2, 2};
+			return true;
+		case '5':
+			rows = {31, 16, 30, 1, 1, 17, 14};
+			return true;
+		case '6':
+			rows = {14, 16, 30, 17, 17, 17, 14};
+			return true;
+		case '7':
+			rows = {31, 1, 2, 4, 8, 8, 8};
+			return true;
+		case '8':
+			rows = {14, 17, 17, 14, 17, 17, 14};
+			return true;
+		case '9':
+			rows = {14, 17, 17, 15, 1, 1, 14};
 			return true;
 		case '.':
 			rows = {0, 0, 0, 0, 0, 12, 12};
@@ -617,6 +723,17 @@ namespace
 
 	bool tryCreateLabelSprite(Texture*& tex, Sprite*& spr, const char* text, int scale, int lineGap)
 	{
+		if (spr != 0)
+		{
+			delete spr;
+			spr = 0;
+		}
+		if (tex != 0)
+		{
+			delete tex;
+			tex = 0;
+		}
+
 		std::vector<unsigned char> buf;
 		int w = 0;
 		int h = 0;
@@ -647,6 +764,22 @@ namespace
 		spr->setBlueTint(1.0f);
 		spr->setAlpha(1.0f);
 		return true;
+	}
+
+	Sprite* trySplashFileSprite(Renderer* r, const char* basename)
+	{
+		static const char kExt[][8] = { ".png", ".jpg", ".jpeg" };
+		char path[192];
+		for (std::size_t i = 0; i < sizeof(kExt) / sizeof(kExt[0]); ++i)
+		{
+			std::snprintf(path, sizeof path, "textures/%s%s", basename, kExt[i]);
+			Sprite* s = r->createSprite(path);
+			if (s != nullptr)
+			{
+				return s;
+			}
+		}
+		return nullptr;
 	}
 }
 
@@ -702,16 +835,26 @@ Game::Game()
 #endif
 	, mLooping(true)
 	, mWallHitAudioDevice(0)
+	, mFootstepAudioDevice(0)
 	, mWallHitPcm(0)
 	, mWallHitPcmLen(0)
 	, mWallHitPcmFromLoadWav(false)
+	, mFootstepClipsReady(false)
+	, mFootstepCooldown(0.0f)
+	, mFootstepShuffleIndex(0)
+	, mFootstepShuffle{ {0, 1, 2, 3} }
 	, mOutlineWallPrevTouch{}
 	, mLastWallHitNoiseRadius(0.0f)
-	, mWallNoisePulseAge(0.0f)
-	, mWallNoisePulseMaxR(0.0f)
-	, mWallNoisePulseCx(0.0f)
-	, mWallNoisePulseCy(0.0f)
-	, mWallNoisePulseActive(false)
+	, mWallNoisePulseAgeWalk(0.0f)
+	, mWallNoisePulseMaxRWalk(0.0f)
+	, mWallNoisePulseCxWalk(0.0f)
+	, mWallNoisePulseCyWalk(0.0f)
+	, mWallNoisePulseActiveWalk(false)
+	, mWallNoisePulseAgeSprint(0.0f)
+	, mWallNoisePulseMaxRSprint(0.0f)
+	, mWallNoisePulseCxSprint(0.0f)
+	, mWallNoisePulseCySprint(0.0f)
+	, mWallNoisePulseActiveSprint(false)
 	, mOcelotX(kOcelotSpawnX)
 	, mOcelotY(kOcelotSpawnY)
 	, mOcelotFacingDeg(180.0f)
@@ -721,8 +864,10 @@ Game::Game()
 	, mOcelotLastSeenY(kOcelotSpawnY)
 	, mOcelotSearchTimer(0.0f)
 	, mOcelotHearingRadius(kOcelotHearRadiusDefault)
+	, mOcelotPatrolIndex(0)
 	, mOcelotAwake(true)
 	, mOcelotState(OcelotState::Investigate)
+	, mCurrentLevel(1)
 	, mMissionState(MissionState::Playing)
 	, mHasKeyCard(false)
 	, mKeyCardX(kKeyCardWorldX)
@@ -731,7 +876,20 @@ Game::Game()
 	, mExtractCenterY(kMissionExtractCenterY)
 	, mExtractHalfW(kMissionExtractHalfW)
 	, mExtractHalfH(kMissionExtractHalfH)
+	, mPlayerAgent()
+	, mExtraEnemies()
+	, mRng(static_cast<unsigned int>(SDL_GetTicks()))
+	, mSplashAutSprite(0)
+	, mSplashBoxuSprite(0)
+	, mSplashSequenceActive(false)
+	, mSplashElapsed(0.0f)
 {
+	for (int i = 0; i < kFootstepClipCount; ++i)
+	{
+		mFootstepPcm[i] = nullptr;
+		mFootstepPcmLen[i] = 0;
+		mFootstepPcmFromLoadWav[i] = false;
+	}
 }
 
 Game::~Game()
@@ -765,6 +923,11 @@ Game::~Game()
 	delete mHudLoseTexture;
 	mHudLoseTexture = 0;
 
+	delete mSplashAutSprite;
+	mSplashAutSprite = 0;
+	delete mSplashBoxuSprite;
+	mSplashBoxuSprite = 0;
+
 	delete mRenderer;
 	mRenderer = 0;
 }
@@ -783,6 +946,8 @@ bool Game::initialize()
 	if (!mRenderer->initialize(true, bbWidth, bbHeight))
 	{
 		LogManager::getInstance().log("Renderer failed to initialize!");
+		delete mRenderer;
+		mRenderer = 0;
 		return false;
 	}
 
@@ -792,6 +957,40 @@ bool Game::initialize()
 	mLastTime = SDL_GetPerformanceCounter();
 
 	mRenderer->setClearColor(0, 0, 0);
+
+	mSplashAutSprite = 0;
+	mSplashBoxuSprite = 0;
+	mSplashSequenceActive = false;
+	mSplashElapsed = 0.0f;
+
+	mSplashAutSprite = trySplashFileSprite(mRenderer, "autSplash1");
+	mSplashBoxuSprite = trySplashFileSprite(mRenderer, "boxuSplash4");
+
+	if (mSplashAutSprite != 0 && mSplashBoxuSprite != 0)
+	{
+		mSplashAutSprite->setAngle(0.0f);
+		mSplashAutSprite->setRedTint(1.0f);
+		mSplashAutSprite->setGreenTint(1.0f);
+		mSplashAutSprite->setBlueTint(1.0f);
+		mSplashAutSprite->setAlpha(1.0f);
+		mSplashBoxuSprite->setAngle(0.0f);
+		mSplashBoxuSprite->setRedTint(1.0f);
+		mSplashBoxuSprite->setGreenTint(1.0f);
+		mSplashBoxuSprite->setBlueTint(1.0f);
+		mSplashBoxuSprite->setAlpha(0.0f);
+		mSplashSequenceActive = true;
+		mSplashElapsed = 0.0f;
+	}
+	else
+	{
+		LogManager::getInstance().log(
+			"Splash skipped: put autSplash1.(png|jpg|jpeg) and boxuSplash4.(png|jpg|jpeg) under Boxu/game/textures/ "
+			"(copied next to gpframework on build).");
+		delete mSplashAutSprite;
+		mSplashAutSprite = 0;
+		delete mSplashBoxuSprite;
+		mSplashBoxuSprite = 0;
+	}
 
 	mFloor = 0;
 
@@ -822,6 +1021,10 @@ bool Game::initialize()
 		mSunekuY = 900.0f;
 		mSuneku->setX(static_cast<int>(mSunekuX));
 		mSuneku->setY(static_cast<int>(mSunekuY));
+		mPlayerAgent.x = mSunekuX;
+		mPlayerAgent.y = mSunekuY;
+		mPlayerAgent.facingDeg = mSunekuFacingDeg;
+		mPlayerAgent.moveSpeed = mSunekuMoveSpeed;
 		if (mSunekuHitboxDebug != 0)
 		{
 			mSunekuHitboxDebug->setX(static_cast<int>(mSunekuX));
@@ -841,7 +1044,8 @@ bool Game::initialize()
 	}
 	else if (!tryInitWallHitAudio())
 	{
-		LogManager::getInstance().log("Wall-hit sound not loaded (sounds/thud.wav).");
+		LogManager::getInstance().log(
+			"SDL audio device not opened (check sounds/thud.wav and sounds/walkTemp1–4.wav).");
 	}
 
 	mVersionTexture = new Texture();
@@ -849,7 +1053,7 @@ bool Game::initialize()
 	std::vector<unsigned char> versionRgba;
 	int vrW = 0;
 	int vrH = 0;
-	const char* kVersionOverlayText = "0.1 alpha";
+	const char* kVersionOverlayText = "0.2 alpha";
 	if (!buildLabelRgbaMultiline(kVersionOverlayText, 3, 4, 3, 0, versionRgba, vrW, vrH))
 	{
 		LogManager::getInstance().log("Version label raster failed.");
@@ -923,11 +1127,18 @@ bool Game::doGameLoop()
 			{
 				quit();
 			}
-			else if (event.key.keysym.scancode == SDL_SCANCODE_H)
+			else if (
+				mSplashSequenceActive
+				&& (event.key.keysym.scancode == SDL_SCANCODE_SPACE
+					|| event.key.keysym.scancode == SDL_SCANCODE_RETURN))
+			{
+				mSplashSequenceActive = false;
+			}
+			else if (!mSplashSequenceActive && event.key.keysym.scancode == SDL_SCANCODE_H)
 			{
 				mShowSunekuHitbox = !mShowSunekuHitbox;
 			}
-			else if (event.key.keysym.scancode == SDL_SCANCODE_R)
+			else if (!mSplashSequenceActive && event.key.keysym.scancode == SDL_SCANCODE_R)
 			{
 				resetMission();
 			}
@@ -969,10 +1180,9 @@ bool Game::doGameLoop()
 
 void Game::resetMission()
 {
+	setupLevel(mCurrentLevel);
 	mMissionState = MissionState::Playing;
 	mHasKeyCard = false;
-	mOcelotX = kOcelotSpawnX;
-	mOcelotY = kOcelotSpawnY;
 	mOcelotFacingDeg = 180.0f;
 	mOcelotInvestigateX = mOcelotX;
 	mOcelotInvestigateY = mOcelotY;
@@ -980,23 +1190,25 @@ void Game::resetMission()
 	mOcelotLastSeenY = mOcelotY;
 	mOcelotSearchTimer = 0.0f;
 	mOcelotHearingRadius = kOcelotHearRadiusDefault;
+	mOcelotPatrolIndex = 0;
 	mOcelotAwake = true;
 	mOcelotState = OcelotState::Investigate;
-	mKeyCardX = kKeyCardWorldX;
-	mKeyCardY = kKeyCardWorldY;
-	mExtractCenterX = kMissionExtractCenterX;
-	mExtractCenterY = kMissionExtractCenterY;
-	mExtractHalfW = kMissionExtractHalfW;
-	mExtractHalfH = kMissionExtractHalfH;
-	mWallNoisePulseActive = false;
-	mWallNoisePulseAge = 0.0f;
+	mWallNoisePulseActiveWalk = false;
+	mWallNoisePulseAgeWalk = 0.0f;
+	mWallNoisePulseActiveSprint = false;
+	mWallNoisePulseAgeSprint = 0.0f;
 	mLastWallHitNoiseRadius = 0.0f;
-	mOutlineWallPrevTouch.fill(false);
+	std::fill(mOutlineWallPrevTouch.begin(), mOutlineWallPrevTouch.end(), false);
+	mFootstepCooldown = 0.0f;
+	if (mFootstepClipsReady)
+	{
+		std::iota(mFootstepShuffle.begin(), mFootstepShuffle.end(), 0);
+		std::shuffle(mFootstepShuffle.begin(), mFootstepShuffle.end(), mRng);
+		mFootstepShuffleIndex = 0;
+	}
 
 	if (mSuneku != 0)
 	{
-		mSunekuX = (Game::kTutorialEntryWestX + Game::kTutorialEntryEastX) * 0.5f;
-		mSunekuY = 900.0f;
 		mSunekuMoveSpeed = kWalkMoveSpeed;
 		mSuneku->setX(static_cast<int>(mSunekuX));
 		mSuneku->setY(static_cast<int>(mSunekuY));
@@ -1025,6 +1237,12 @@ void Game::process(float deltaTime)
 	}
 
 	processFrameCounting(deltaTime);
+
+	if (mSplashSequenceActive)
+	{
+		updateSplashIntro(deltaTime);
+		return;
+	}
 
 	if (mSuneku != 0)
 	{
@@ -1095,13 +1313,15 @@ void Game::process(float deltaTime)
 
 		const float kTouchSlop = 3.0f;
 		bool newContact = false;
-		for (int s = 0; s < kTutorialWireSegmentCount; ++s)
+		const float* wire = activeWireFlat();
+		const int segCount = activeWireSegmentCount();
+		for (int s = 0; s < segCount; ++s)
 		{
 			const int o = s * 4;
-			const float ax = kTutorialWireFlat[static_cast<std::size_t>(o + 0)];
-			const float ay = kTutorialWireFlat[static_cast<std::size_t>(o + 1)];
-			const float bx = kTutorialWireFlat[static_cast<std::size_t>(o + 2)];
-			const float by = kTutorialWireFlat[static_cast<std::size_t>(o + 3)];
+			const float ax = wire[static_cast<std::size_t>(o + 0)];
+			const float ay = wire[static_cast<std::size_t>(o + 1)];
+			const float bx = wire[static_cast<std::size_t>(o + 2)];
+			const float by = wire[static_cast<std::size_t>(o + 3)];
 			float qx = 0.0f;
 			float qy = 0.0f;
 			closestPointOnSegment2D(clampedX, clampedY, ax, ay, bx, by, qx, qy);
@@ -1139,54 +1359,51 @@ void Game::process(float deltaTime)
 		if (newContact)
 		{
 			playWallHitSoundIfReady();
-			mLastWallHitNoiseRadius =
-				sprintHeld ? kWallNoiseRadiusSprint : kWallNoiseRadiusWalk;
-			mWallNoisePulseActive = true;
-			mWallNoisePulseAge = 0.0f;
-			mWallNoisePulseMaxR = mLastWallHitNoiseRadius;
-			mWallNoisePulseCx = clampedX;
-			mWallNoisePulseCy = clampedY;
-
-			if (!mOcelotAwake)
-			{
-				const float edx = mOcelotX - clampedX;
-				const float edy = mOcelotY - clampedY;
-				const float noiseR = mLastWallHitNoiseRadius;
-				if (edx * edx + edy * edy <= noiseR * noiseR)
-				{
-					mOcelotAwake = true;
-					mOcelotState = OcelotState::Investigate;
-					mOcelotInvestigateX = clampedX;
-					mOcelotInvestigateY = clampedY;
-					mOcelotHearingRadius = noiseR;
-				}
-			}
-			else
-			{
-				const float edx = mOcelotX - clampedX;
-				const float edy = mOcelotY - clampedY;
-				const float noiseR = mLastWallHitNoiseRadius;
-				if (edx * edx + edy * edy <= noiseR * noiseR)
-				{
-					mOcelotState = OcelotState::Investigate;
-					mOcelotInvestigateX = clampedX;
-					mOcelotInvestigateY = clampedY;
-					mOcelotHearingRadius = noiseR;
-				}
-			}
+			emitNoiseEvent(clampedX, clampedY, sprintHeld);
 		}
 
-		if (mWallNoisePulseActive)
+		if (mWallNoisePulseActiveWalk)
 		{
-			mWallNoisePulseAge += deltaTime;
-			if (mWallNoisePulseAge >= kNoisePulseDuration)
+			mWallNoisePulseAgeWalk += deltaTime;
+			if (mWallNoisePulseAgeWalk >= kNoisePulseDuration)
 			{
-				mWallNoisePulseActive = false;
+				mWallNoisePulseActiveWalk = false;
+			}
+		}
+		if (mWallNoisePulseActiveSprint)
+		{
+			mWallNoisePulseAgeSprint += deltaTime;
+			if (mWallNoisePulseAgeSprint >= kNoisePulseDuration)
+			{
+				mWallNoisePulseActiveSprint = false;
 			}
 		}
 
 		mSunekuX = clampedX;
 		mSunekuY = clampedY;
+
+		// Footsteps: key-based cadence (movement can be tiny against walls; SDL_QueueAudio copies bytes).
+		if (mFootstepClipsReady && moveInput)
+		{
+			const float stepInterval =
+				sprintHeld ? kFootstepIntervalSprint : kFootstepIntervalWalk;
+			mFootstepCooldown -= deltaTime;
+			if (mFootstepCooldown <= 0.0f)
+			{
+				playNextFootstepClip();
+				emitNoiseEvent(mSunekuX, mSunekuY, sprintHeld);
+				mFootstepCooldown = stepInterval;
+			}
+		}
+		else
+		{
+			// Stop immediately when movement keys are released.
+			if (mFootstepAudioDevice != 0)
+			{
+				SDL_ClearQueuedAudio(static_cast<SDL_AudioDeviceID>(mFootstepAudioDevice));
+			}
+			mFootstepCooldown = 0.0f;
+		}
 
 		mSuneku->setX(static_cast<int>(mSunekuX));
 		mSuneku->setY(static_cast<int>(mSunekuY));
@@ -1197,6 +1414,10 @@ void Game::process(float deltaTime)
 		}
 
 		updateOcelot(deltaTime);
+		for (std::size_t i = 0; i < mExtraEnemies.size(); ++i)
+		{
+			updateEnemyAgent(mExtraEnemies[i], static_cast<int>(i), deltaTime);
+		}
 
 		if (mMissionState == MissionState::Playing)
 		{
@@ -1219,6 +1440,23 @@ void Game::process(float deltaTime)
 					mMissionState = MissionState::Lost;
 				}
 			}
+			if (mMissionState == MissionState::Playing)
+			{
+				for (const EnemyAgent& enemy : mExtraEnemies)
+				{
+					if (!enemy.awake)
+					{
+						continue;
+					}
+					const float odx = mSunekuX - enemy.x;
+					const float ody = mSunekuY - enemy.y;
+					if (odx * odx + ody * ody <= kMissionCatchDistance * kMissionCatchDistance)
+					{
+						mMissionState = MissionState::Lost;
+						break;
+					}
+				}
+			}
 
 			if (mMissionState == MissionState::Playing && mHasKeyCard)
 			{
@@ -1226,7 +1464,25 @@ void Game::process(float deltaTime)
 				const float ay = std::fabs(mSunekuY - mExtractCenterY);
 				if (ax <= mExtractHalfW && ay <= mExtractHalfH)
 				{
-					mMissionState = MissionState::Won;
+					if (mCurrentLevel == 1)
+					{
+						setupLevel(2);
+						mMissionState = MissionState::Playing;
+						mHasKeyCard = false;
+						mOcelotFacingDeg = 180.0f;
+						mOcelotInvestigateX = mOcelotX;
+						mOcelotInvestigateY = mOcelotY;
+						mOcelotLastSeenX = mOcelotX;
+						mOcelotLastSeenY = mOcelotY;
+						mOcelotSearchTimer = 0.0f;
+						mOcelotState = OcelotState::Investigate;
+						mOcelotPatrolIndex = 0;
+						std::fill(mOutlineWallPrevTouch.begin(), mOutlineWallPrevTouch.end(), false);
+					}
+					else
+					{
+						mMissionState = MissionState::Won;
+					}
 				}
 			}
 		}
@@ -1238,13 +1494,15 @@ void Game::process(float deltaTime)
 
 bool Game::hasWallOcclusion(float ax, float ay, float bx, float by) const
 {
-	for (int s = 0; s < kTutorialWireSegmentCount; ++s)
+	const float* wire = activeWireFlat();
+	const int segCount = activeWireSegmentCount();
+	for (int s = 0; s < segCount; ++s)
 	{
 		const int o = s * 4;
-		const float wx0 = kTutorialWireFlat[static_cast<std::size_t>(o + 0)];
-		const float wy0 = kTutorialWireFlat[static_cast<std::size_t>(o + 1)];
-		const float wx1 = kTutorialWireFlat[static_cast<std::size_t>(o + 2)];
-		const float wy1 = kTutorialWireFlat[static_cast<std::size_t>(o + 3)];
+		const float wx0 = wire[static_cast<std::size_t>(o + 0)];
+		const float wy0 = wire[static_cast<std::size_t>(o + 1)];
+		const float wx1 = wire[static_cast<std::size_t>(o + 2)];
+		const float wy1 = wire[static_cast<std::size_t>(o + 3)];
 		if (segmentsIntersect2D(ax, ay, bx, by, wx0, wy0, wx1, wy1))
 		{
 			return true;
@@ -1253,8 +1511,364 @@ bool Game::hasWallOcclusion(float ax, float ay, float bx, float by) const
 	return false;
 }
 
+const float* Game::activeWireFlat() const
+{
+	if (mCurrentLevel == 2)
+	{
+		return kFacilityWireFlat;
+	}
+	return kTutorialWireFlat.data();
+}
+
+int Game::activeWireSegmentCount() const
+{
+	if (mCurrentLevel == 2)
+	{
+		return kFacilityWireSegmentCount;
+	}
+	return kTutorialWireSegmentCount;
+}
+
+void Game::setupLevel(int index)
+{
+	mCurrentLevel = (index <= 1) ? 1 : 2;
+	if (mCurrentLevel == 1)
+	{
+		mMapWidth = 2560.0f;
+		mMapHeight = 1920.0f;
+		mSunekuX = (Game::kTutorialEntryWestX + Game::kTutorialEntryEastX) * 0.5f;
+		mSunekuY = 900.0f;
+		mOcelotX = kOcelotSpawnX;
+		mOcelotY = kOcelotSpawnY;
+		mKeyCardX = kKeyCardWorldX;
+		mKeyCardY = kKeyCardWorldY;
+		mExtractCenterX = kMissionExtractCenterX;
+		mExtractCenterY = kMissionExtractCenterY;
+		mExtractHalfW = kMissionExtractHalfW;
+		mExtractHalfH = kMissionExtractHalfH;
+	}
+	else
+	{
+		mMapWidth = 2680.0f;
+		mMapHeight = 1880.0f;
+		mSunekuX = 360.0f;
+		mSunekuY = 320.0f;
+		mOcelotX = 2060.0f;
+		mOcelotY = 1420.0f;
+		mKeyCardX = 2350.0f;
+		mKeyCardY = 320.0f;
+		mExtractCenterX = 2240.0f;
+		mExtractCenterY = 1600.0f;
+		mExtractHalfW = 120.0f;
+		mExtractHalfH = 90.0f;
+	}
+	mPlayerAgent.x = mSunekuX;
+	mPlayerAgent.y = mSunekuY;
+	mPlayerAgent.facingDeg = mSunekuFacingDeg;
+	mPlayerAgent.moveSpeed = mSunekuMoveSpeed;
+	mOutlineWallPrevTouch.assign(static_cast<std::size_t>(activeWireSegmentCount()), false);
+	resetExtraEnemies();
+}
+
+void Game::resetExtraEnemies()
+{
+	mExtraEnemies.clear();
+	const int extraCount = (mCurrentLevel == 1) ? 0 : 3;
+	std::uniform_real_distribution<float> rangeRand(420.0f, 680.0f);
+	std::uniform_real_distribution<float> hearRand(220.0f, 420.0f);
+	std::uniform_real_distribution<float> chaseRand(94.0f, 126.0f);
+
+	for (int i = 0; i < extraCount; ++i)
+	{
+		EnemyAgent e;
+		if (mCurrentLevel == 1)
+		{
+			static const float spawnL1[6] = {1860.0f, 820.0f, 2140.0f, 1140.0f, 2300.0f, 640.0f};
+			e.x = spawnL1[i * 2 + 0];
+			e.y = spawnL1[i * 2 + 1];
+		}
+		else
+		{
+			static const float spawnL2[6] = {1260.0f, 560.0f, 2140.0f, 980.0f, 2380.0f, 1520.0f};
+			e.x = spawnL2[i * 2 + 0];
+			e.y = spawnL2[i * 2 + 1];
+		}
+		e.investigateX = e.x;
+		e.investigateY = e.y;
+		e.lastSeenX = e.x;
+		e.lastSeenY = e.y;
+		e.facingDeg = 180.0f;
+		e.hearingRadius = hearRand(mRng);
+		e.visionRange = rangeRand(mRng);
+		e.visionHalfAngleDeg = 30.0f + static_cast<float>(i) * 6.0f;
+		e.chaseSpeed = chaseRand(mRng);
+		e.investigateSpeed = e.chaseSpeed * 0.78f;
+		e.searchSpeed = e.chaseSpeed * 0.72f;
+		e.state = OcelotState::Investigate;
+		e.awake = true;
+		e.patrolIndex = i % 4;
+		mExtraEnemies.push_back(e);
+	}
+}
+
+bool Game::pickEnemySteerTarget(
+	const EnemyAgent& enemy,
+	float goalX,
+	float goalY,
+	float& outX,
+	float& outY) const
+{
+	if (!hasWallOcclusion(enemy.x, enemy.y, goalX, goalY))
+	{
+		outX = goalX;
+		outY = goalY;
+		return true;
+	}
+
+	float bestCost = std::numeric_limits<float>::max();
+	bool found = false;
+	auto tryCandidate = [&](float cx, float cy)
+	{
+		if (hasWallOcclusion(enemy.x, enemy.y, cx, cy))
+		{
+			return;
+		}
+		const float d1x = cx - enemy.x;
+		const float d1y = cy - enemy.y;
+		const float d2x = goalX - cx;
+		const float d2y = goalY - cy;
+		float cost = std::sqrt(d1x * d1x + d1y * d1y) + std::sqrt(d2x * d2x + d2y * d2y);
+		if (hasWallOcclusion(cx, cy, goalX, goalY))
+		{
+			cost += 220.0f;
+		}
+		if (cost < bestCost)
+		{
+			bestCost = cost;
+			outX = cx;
+			outY = cy;
+			found = true;
+		}
+	};
+
+	const float* wire = activeWireFlat();
+	const int segCount = activeWireSegmentCount();
+	for (int s = 0; s < segCount; ++s)
+	{
+		const int o = s * 4;
+		const float ax = wire[static_cast<std::size_t>(o + 0)];
+		const float ay = wire[static_cast<std::size_t>(o + 1)];
+		const float bx = wire[static_cast<std::size_t>(o + 2)];
+		const float by = wire[static_cast<std::size_t>(o + 3)];
+		const float nudge = 20.0f;
+		tryCandidate(ax + nudge, ay + nudge);
+		tryCandidate(ax - nudge, ay - nudge);
+		tryCandidate(bx + nudge, by + nudge);
+		tryCandidate(bx - nudge, by - nudge);
+	}
+
+	return found;
+}
+
+bool Game::pickOcelotSteerTarget(float goalX, float goalY, float& outX, float& outY) const
+{
+	const std::array<float, 8>& patrolPoints =
+		(mCurrentLevel == 2) ? kOcelotPatrolPointsL2 : kOcelotPatrolPointsL1;
+	if (!hasWallOcclusion(mOcelotX, mOcelotY, goalX, goalY))
+	{
+		outX = goalX;
+		outY = goalY;
+		return true;
+	}
+
+	float bestCost = std::numeric_limits<float>::max();
+	bool found = false;
+	auto tryCandidate = [&](float cx, float cy)
+	{
+		if (hasWallOcclusion(mOcelotX, mOcelotY, cx, cy))
+		{
+			return;
+		}
+		const float d1x = cx - mOcelotX;
+		const float d1y = cy - mOcelotY;
+		const float d2x = goalX - cx;
+		const float d2y = goalY - cy;
+		float cost = std::sqrt(d1x * d1x + d1y * d1y) + std::sqrt(d2x * d2x + d2y * d2y);
+		if (hasWallOcclusion(cx, cy, goalX, goalY))
+		{
+			cost += 220.0f;
+		}
+		if (cost < bestCost)
+		{
+			bestCost = cost;
+			outX = cx;
+			outY = cy;
+			found = true;
+		}
+	};
+
+	for (std::size_t i = 0; i < patrolPoints.size(); i += 2u)
+	{
+		tryCandidate(patrolPoints[i + 0u], patrolPoints[i + 1u]);
+	}
+
+	const float* wire = activeWireFlat();
+	const int segCount = activeWireSegmentCount();
+	for (int s = 0; s < segCount; ++s)
+	{
+		const int o = s * 4;
+		const float ax = wire[static_cast<std::size_t>(o + 0)];
+		const float ay = wire[static_cast<std::size_t>(o + 1)];
+		const float bx = wire[static_cast<std::size_t>(o + 2)];
+		const float by = wire[static_cast<std::size_t>(o + 3)];
+		const float nudge = 20.0f;
+		tryCandidate(ax + nudge, ay + nudge);
+		tryCandidate(ax - nudge, ay - nudge);
+		tryCandidate(bx + nudge, by + nudge);
+		tryCandidate(bx - nudge, by - nudge);
+	}
+
+	return found;
+}
+
+void Game::updateEnemyAgent(EnemyAgent& enemy, int enemyIndex, float deltaTime)
+{
+	if (!enemy.awake)
+	{
+		return;
+	}
+
+	const float toSunX = mSunekuX - enemy.x;
+	const float toSunY = mSunekuY - enemy.y;
+	const float distSq = toSunX * toSunX + toSunY * toSunY;
+	const bool inRange = distSq <= enemy.visionRange * enemy.visionRange;
+	bool inFov = false;
+	if (inRange)
+	{
+		const float targetDeg = wrap360(-std::atan2(toSunY, toSunX) * 57.2957795f);
+		const float deltaDeg = std::fabs(shortestAngleDeltaDegrees(enemy.facingDeg, targetDeg));
+		inFov = deltaDeg <= enemy.visionHalfAngleDeg;
+	}
+	const bool clearSight = inRange && inFov && !hasWallOcclusion(enemy.x, enemy.y, mSunekuX, mSunekuY);
+	if (clearSight)
+	{
+		enemy.state = OcelotState::Chase;
+		enemy.lastSeenX = mSunekuX;
+		enemy.lastSeenY = mSunekuY;
+		enemy.searchTimer = kOcelotSearchDuration;
+	}
+	else if (enemy.state == OcelotState::Chase)
+	{
+		enemy.state = OcelotState::Search;
+	}
+
+	float targetX = enemy.x;
+	float targetY = enemy.y;
+	float moveSpeed = 0.0f;
+	if (enemy.state == OcelotState::Chase)
+	{
+		targetX = mSunekuX;
+		targetY = mSunekuY;
+		moveSpeed = enemy.chaseSpeed;
+	}
+	else if (enemy.state == OcelotState::Investigate)
+	{
+		targetX = enemy.investigateX;
+		targetY = enemy.investigateY;
+		moveSpeed = enemy.investigateSpeed;
+	}
+	else if (enemy.state == OcelotState::Search)
+	{
+		targetX = enemy.lastSeenX;
+		targetY = enemy.lastSeenY;
+		moveSpeed = enemy.searchSpeed;
+	}
+
+	if (mCurrentLevel == 2 && enemyIndex >= 0 && enemyIndex < 3 && enemy.state == OcelotState::Investigate)
+	{
+		const float* route = 0;
+		int routeCount = 0;
+		if (getEnemyPatrolRoute(enemyIndex, route, routeCount) && routeCount > 0)
+		{
+			const int node = enemy.patrolIndex % routeCount;
+			targetX = route[static_cast<std::size_t>(node * 2 + 0)];
+			targetY = route[static_cast<std::size_t>(node * 2 + 1)];
+			moveSpeed = enemy.investigateSpeed;
+		}
+	}
+
+	float steerX = targetX;
+	float steerY = targetY;
+	pickEnemySteerTarget(enemy, targetX, targetY, steerX, steerY);
+
+	float dx = steerX - enemy.x;
+	float dy = steerY - enemy.y;
+	const float d2 = dx * dx + dy * dy;
+	if (d2 > kOcelotStopDist * kOcelotStopDist && moveSpeed > 0.0f)
+	{
+		const float d = std::sqrt(d2);
+		dx /= d;
+		dy /= d;
+		enemy.x += dx * moveSpeed * deltaTime;
+		enemy.y += dy * moveSpeed * deltaTime;
+		enemy.facingDeg = wrap360(-std::atan2(dy, dx) * 57.2957795f);
+	}
+
+	const float er = kOcelotBodyRadius;
+	if (enemy.x < er) { enemy.x = er; }
+	if (enemy.y < er) { enemy.y = er; }
+	if (enemy.x > mMapWidth - er) { enemy.x = mMapWidth - er; }
+	if (enemy.y > mMapHeight - er) { enemy.y = mMapHeight - er; }
+	constrainCenterToWireSegments(
+		enemy.x,
+		enemy.y,
+		activeWireFlat(),
+		activeWireSegmentCount(),
+		kOcelotBodyRadius,
+		kOcelotBodyRadius,
+		0.0f);
+
+	if (enemy.state == OcelotState::Investigate)
+	{
+		const float ix = targetX - enemy.x;
+		const float iy = targetY - enemy.y;
+		if (ix * ix + iy * iy <= kOcelotStopDist * kOcelotStopDist)
+		{
+			const bool patrolEnemy = (mCurrentLevel == 2 && enemyIndex >= 0 && enemyIndex < 3);
+			if (patrolEnemy)
+			{
+				const float* route = 0;
+				int routeCount = 0;
+				if (getEnemyPatrolRoute(enemyIndex, route, routeCount) && routeCount > 0)
+				{
+					enemy.patrolIndex = (enemy.patrolIndex + 1) % routeCount;
+				}
+			}
+			else
+			{
+				enemy.state = OcelotState::Search;
+				enemy.lastSeenX = enemy.x;
+				enemy.lastSeenY = enemy.y;
+				enemy.searchTimer = kOcelotSearchDuration;
+			}
+		}
+	}
+	else if (enemy.state == OcelotState::Search)
+	{
+		enemy.searchTimer -= deltaTime;
+		if (enemy.searchTimer <= 0.0f)
+		{
+			enemy.state = OcelotState::Investigate;
+			enemy.investigateX = enemy.x;
+			enemy.investigateY = enemy.y;
+		}
+	}
+}
+
 void Game::updateOcelot(float deltaTime)
 {
+	const std::array<float, 8>& patrolPoints =
+		(mCurrentLevel == 2) ? kOcelotPatrolPointsL2 : kOcelotPatrolPointsL1;
 	if (!mOcelotAwake)
 	{
 		return;
@@ -1307,8 +1921,38 @@ void Game::updateOcelot(float deltaTime)
 		moveSpeed = kOcelotSearchSpeed;
 	}
 
-	float dx = targetX - mOcelotX;
-	float dy = targetY - mOcelotY;
+	const bool patrolMode = (mOcelotState == OcelotState::Investigate &&
+		mOcelotInvestigateX == kOcelotSpawnX &&
+		mOcelotInvestigateY == kOcelotSpawnY);
+	if (patrolMode)
+	{
+		const int patrolCount = static_cast<int>(patrolPoints.size() / 2u);
+		int idx = mOcelotPatrolIndex;
+		for (int tries = 0; tries < patrolCount; ++tries)
+		{
+			const float px = patrolPoints[static_cast<std::size_t>(idx * 2)];
+			const float py = patrolPoints[static_cast<std::size_t>(idx * 2 + 1)];
+			if (!hasWallOcclusion(mOcelotX, mOcelotY, px, py))
+			{
+				mOcelotPatrolIndex = idx;
+				targetX = px;
+				targetY = py;
+				break;
+			}
+			idx = (idx + 1) % patrolCount;
+		}
+		moveSpeed = kOcelotInvestigateSpeed;
+	}
+
+	float steerX = targetX;
+	float steerY = targetY;
+	if (mOcelotState == OcelotState::Chase || (mOcelotState == OcelotState::Investigate && !patrolMode))
+	{
+		pickOcelotSteerTarget(targetX, targetY, steerX, steerY);
+	}
+
+	float dx = steerX - mOcelotX;
+	float dy = steerY - mOcelotY;
 	const float d2 = dx * dx + dy * dy;
 	if (d2 > kOcelotStopDist * kOcelotStopDist && moveSpeed > 0.0f)
 	{
@@ -1328,22 +1972,30 @@ void Game::updateOcelot(float deltaTime)
 	constrainCenterToWireSegments(
 		mOcelotX,
 		mOcelotY,
-		kTutorialWireFlat.data(),
-		kTutorialWireSegmentCount,
+		activeWireFlat(),
+		activeWireSegmentCount(),
 		kOcelotBodyRadius,
 		kOcelotBodyRadius,
 		0.0f);
 
 	if (mOcelotState == OcelotState::Investigate)
 	{
-		const float ix = mOcelotInvestigateX - mOcelotX;
-		const float iy = mOcelotInvestigateY - mOcelotY;
+		const float ix = targetX - mOcelotX;
+		const float iy = targetY - mOcelotY;
 		if (ix * ix + iy * iy <= kOcelotStopDist * kOcelotStopDist)
 		{
-			mOcelotState = OcelotState::Search;
-			mOcelotLastSeenX = mOcelotX;
-			mOcelotLastSeenY = mOcelotY;
-			mOcelotSearchTimer = kOcelotSearchDuration;
+			if (patrolMode)
+			{
+				mOcelotPatrolIndex =
+					(mOcelotPatrolIndex + 1) % static_cast<int>(patrolPoints.size() / 2u);
+			}
+			else
+			{
+				mOcelotState = OcelotState::Search;
+				mOcelotLastSeenX = mOcelotX;
+				mOcelotLastSeenY = mOcelotY;
+				mOcelotSearchTimer = kOcelotSearchDuration;
+			}
 		}
 	}
 	else if (mOcelotState == OcelotState::Search)
@@ -1363,6 +2015,12 @@ void Game::draw(Renderer& renderer)
 {
 	++mFrameCount;
 
+	if (mSplashSequenceActive)
+	{
+		drawSplashIntro(renderer);
+		return;
+	}
+
 	renderer.clear();
 
 	renderer.drawWorldAxisAlignedQuad(
@@ -1381,7 +2039,7 @@ void Game::draw(Renderer& renderer)
 	}
 
 	renderer.drawWorldLineSegments(
-		kTutorialWireFlat.data(), kTutorialWireSegmentCount, 1.0f, 0.0f, 0.0f, 1.0f);
+		activeWireFlat(), activeWireSegmentCount(), 1.0f, 0.0f, 0.0f, 1.0f);
 
 	{
 		const float exA = mHasKeyCard ? 0.22f : 0.12f;
@@ -1444,6 +2102,12 @@ void Game::draw(Renderer& renderer)
 			drawWorldCircleOutline(renderer, mOcelotX, mOcelotY, er, 36, 0.42f, 0.45f, 0.5f, 0.75f);
 		}
 	}
+	for (const EnemyAgent& enemy : mExtraEnemies)
+	{
+		const float er = kOcelotBodyRadius * 0.86f;
+		drawWorldCircleOutline(renderer, enemy.x, enemy.y, er, 34, 0.95f, 0.18f, 0.18f, 0.92f);
+		drawWorldCircleOutline(renderer, enemy.x, enemy.y, er * 0.52f, 22, 1.0f, 0.46f, 0.24f, 0.75f);
+	}
 
 	drawWorldConeOutline(
 		renderer,
@@ -1456,9 +2120,43 @@ void Game::draw(Renderer& renderer)
 		0.84f,
 		0.1f,
 		0.62f);
+	for (const EnemyAgent& enemy : mExtraEnemies)
+	{
+		drawWorldConeOutline(
+			renderer,
+			enemy.x,
+			enemy.y,
+			enemy.facingDeg,
+			enemy.visionHalfAngleDeg,
+			enemy.visionRange,
+			1.0f,
+			0.55f,
+			0.2f,
+			0.5f);
+	}
 
 	if (mShowSunekuHitbox && mOcelotAwake)
 	{
+		drawWorldCircleFillApprox(
+			renderer,
+			mOcelotX,
+			mOcelotY,
+			kWallNoiseRadiusWalk,
+			0.22f,
+			0.95f,
+			0.38f,
+			0.12f);
+		drawWorldCircleOutline(
+			renderer,
+			mOcelotX,
+			mOcelotY,
+			kWallNoiseRadiusWalk,
+			44,
+			0.22f,
+			0.95f,
+			0.38f,
+			0.68f);
+
 		drawWorldCircleFillApprox(
 			renderer,
 			mOcelotX,
@@ -1479,6 +2177,64 @@ void Game::draw(Renderer& renderer)
 			1.0f,
 			0.55f);
 	}
+	if (mShowSunekuHitbox)
+	{
+		if (mCurrentLevel == 2)
+		{
+			for (int i = 0; i < 3; ++i)
+			{
+				const float* route = 0;
+				int routeCount = 0;
+				if (!getEnemyPatrolRoute(i, route, routeCount) || routeCount < 3)
+				{
+					continue;
+				}
+				renderer.drawWorldLineLoop(route, routeCount, 0.9f, 0.9f, 0.2f, 0.35f);
+			}
+		}
+		for (const EnemyAgent& enemy : mExtraEnemies)
+		{
+			drawWorldCircleFillApprox(
+				renderer,
+				enemy.x,
+				enemy.y,
+				kWallNoiseRadiusWalk,
+				0.22f,
+				0.95f,
+				0.38f,
+				0.10f);
+			drawWorldCircleOutline(
+				renderer,
+				enemy.x,
+				enemy.y,
+				kWallNoiseRadiusWalk,
+				34,
+				0.22f,
+				0.95f,
+				0.38f,
+				0.5f);
+			const float longR = std::max(enemy.hearingRadius, kWallNoiseRadiusSprint);
+			drawWorldCircleFillApprox(
+				renderer,
+				enemy.x,
+				enemy.y,
+				longR,
+				0.24f,
+				0.62f,
+				1.0f,
+				0.12f);
+			drawWorldCircleOutline(
+				renderer,
+				enemy.x,
+				enemy.y,
+				longR,
+				38,
+				0.24f,
+				0.62f,
+				1.0f,
+				0.5f);
+		}
+	}
 
 	if (!mShowSunekuHitbox)
 	{
@@ -1491,8 +2247,8 @@ void Game::draw(Renderer& renderer)
 			kVisionOutsideAlpha,
 			mCameraX,
 			mCameraY,
-			kTutorialWireFlat.data(),
-			kTutorialWireSegmentCount);
+			activeWireFlat(),
+			activeWireSegmentCount());
 	}
 
 	if (mSuneku != 0)
@@ -1504,12 +2260,12 @@ void Game::draw(Renderer& renderer)
 		mSunekuHitboxDebug->draw(renderer);
 	}
 
-	if (mShowSunekuHitbox && mWallNoisePulseActive && mWallNoisePulseMaxR > 1.0f)
+	if (mShowSunekuHitbox && mWallNoisePulseActiveWalk && mWallNoisePulseMaxRWalk > 1.0f)
 	{
-		const float t = mWallNoisePulseAge / kNoisePulseDuration;
+		const float t = mWallNoisePulseAgeWalk / kNoisePulseDuration;
 		if (t >= 0.0f && t < 1.0f)
 		{
-			const float ringR = mWallNoisePulseMaxR * t;
+			const float ringR = mWallNoisePulseMaxRWalk * t;
 			const float alpha = (1.0f - t) * 0.9f;
 			const int n = 36;
 			float xy[72];
@@ -1517,10 +2273,29 @@ void Game::draw(Renderer& renderer)
 			for (int i = 0; i < n; ++i)
 			{
 				const float ang = twoPi * static_cast<float>(i) / static_cast<float>(n);
-				xy[i * 2 + 0] = mWallNoisePulseCx + std::cos(ang) * ringR;
-				xy[i * 2 + 1] = mWallNoisePulseCy + std::sin(ang) * ringR;
+				xy[i * 2 + 0] = mWallNoisePulseCxWalk + std::cos(ang) * ringR;
+				xy[i * 2 + 1] = mWallNoisePulseCyWalk + std::sin(ang) * ringR;
 			}
-			renderer.drawWorldLineLoop(xy, n, 0.35f, 0.88f, 1.0f, alpha);
+			renderer.drawWorldLineLoop(xy, n, 0.3f, 1.0f, 0.55f, alpha);
+		}
+	}
+	if (mShowSunekuHitbox && mWallNoisePulseActiveSprint && mWallNoisePulseMaxRSprint > 1.0f)
+	{
+		const float t = mWallNoisePulseAgeSprint / kNoisePulseDuration;
+		if (t >= 0.0f && t < 1.0f)
+		{
+			const float ringR = mWallNoisePulseMaxRSprint * t;
+			const float alpha = (1.0f - t) * 0.9f;
+			const int n = 36;
+			float xy[72];
+			const float twoPi = 6.2831853f;
+			for (int i = 0; i < n; ++i)
+			{
+				const float ang = twoPi * static_cast<float>(i) / static_cast<float>(n);
+				xy[i * 2 + 0] = mWallNoisePulseCxSprint + std::cos(ang) * ringR;
+				xy[i * 2 + 1] = mWallNoisePulseCySprint + std::sin(ang) * ringR;
+			}
+			renderer.drawWorldLineLoop(xy, n, 0.25f, 0.65f, 1.0f, alpha);
 		}
 	}
 
@@ -1568,6 +2343,116 @@ void Game::draw(Renderer& renderer)
 		mVersionSprite->setX(static_cast<int>(cx));
 		mVersionSprite->setY(static_cast<int>(cy));
 		mVersionSprite->draw(renderer);
+	}
+
+	renderer.present();
+}
+
+void Game::layoutSplashSpriteCenter(Sprite* sprite, Renderer& renderer)
+{
+	if (sprite == 0)
+	{
+		return;
+	}
+	const float viewW = static_cast<float>(renderer.getWidth());
+	const float viewH = static_cast<float>(renderer.getHeight());
+	const float maxW = viewW * 0.9f;
+	const float maxH = viewH * 0.9f;
+	sprite->setScale(1.0f);
+	const float bw = static_cast<float>(sprite->getWidth());
+	const float bh = static_cast<float>(sprite->getHeight());
+	if (bw < 1.0f || bh < 1.0f)
+	{
+		return;
+	}
+	const float s = std::min(maxW / bw, maxH / bh);
+	sprite->setScale(s);
+	const float cx = mCameraX + viewW * 0.5f;
+	const float cy = mCameraY + viewH * 0.5f;
+	sprite->setX(static_cast<int>(cx));
+	sprite->setY(static_cast<int>(cy));
+}
+
+void Game::updateSplashIntro(float deltaTime)
+{
+	if (!mSplashSequenceActive || mSplashAutSprite == 0 || mSplashBoxuSprite == 0)
+	{
+		mSplashSequenceActive = false;
+		return;
+	}
+
+	static constexpr float kAutHold = 0.65f;
+	static constexpr float kAutFadeOut = 1.15f;
+	static constexpr float kBoxuFadeIn = 1.15f;
+	static constexpr float kBoxuHold = 0.5f;
+	static constexpr float kBoxuFadeOut = 1.15f;
+	const float tComplete =
+		kAutHold + kAutFadeOut + kBoxuFadeIn + kBoxuHold + kBoxuFadeOut;
+
+	mSplashElapsed += deltaTime;
+	if (mSplashElapsed >= tComplete)
+	{
+		mSplashSequenceActive = false;
+		return;
+	}
+
+	const float t = mSplashElapsed;
+	const float autEndHold = kAutHold;
+	const float autEndFade = autEndHold + kAutFadeOut;
+	const float boxuEndFadeIn = autEndFade + kBoxuFadeIn;
+	const float boxuEndHold = boxuEndFadeIn + kBoxuHold;
+	const float boxuEndFadeOut = boxuEndHold + kBoxuFadeOut;
+
+	float autA = 0.0f;
+	float boxuA = 0.0f;
+
+	if (t < autEndHold)
+	{
+		autA = 1.0f;
+	}
+	else if (t < autEndFade)
+	{
+		const float u = (t - autEndHold) / kAutFadeOut;
+		autA = std::max(0.0f, 1.0f - u);
+	}
+
+	if (t <= autEndFade)
+	{
+		boxuA = 0.0f;
+	}
+	else if (t < boxuEndFadeIn)
+	{
+		const float u = (t - autEndFade) / kBoxuFadeIn;
+		boxuA = std::min(1.0f, std::max(0.0f, u));
+	}
+	else if (t < boxuEndHold)
+	{
+		boxuA = 1.0f;
+	}
+	else if (t < boxuEndFadeOut)
+	{
+		const float u = (t - boxuEndHold) / kBoxuFadeOut;
+		boxuA = std::max(0.0f, 1.0f - u);
+	}
+
+	mSplashAutSprite->setAlpha(autA);
+	mSplashBoxuSprite->setAlpha(boxuA);
+}
+
+void Game::drawSplashIntro(Renderer& renderer)
+{
+	renderer.clear();
+	renderer.setCamera(mCameraX, mCameraY);
+
+	if (mSplashAutSprite != 0 && mSplashAutSprite->getAlpha() > 0.001f)
+	{
+		layoutSplashSpriteCenter(mSplashAutSprite, renderer);
+		mSplashAutSprite->draw(renderer);
+	}
+	if (mSplashBoxuSprite != 0 && mSplashBoxuSprite->getAlpha() > 0.001f)
+	{
+		layoutSplashSpriteCenter(mSplashBoxuSprite, renderer);
+		mSplashBoxuSprite->draw(renderer);
 	}
 
 	renderer.present();
@@ -1675,8 +2560,8 @@ void Game::constrainSunekuToTutorialOutline(
 	constrainCenterToWireSegments(
 		cx,
 		cy,
-		kTutorialWireFlat.data(),
-		kTutorialWireSegmentCount,
+		activeWireFlat(),
+		activeWireSegmentCount(),
 		localHalfW,
 		localHalfH,
 		facingAngleDeg);
@@ -1684,14 +2569,127 @@ void Game::constrainSunekuToTutorialOutline(
 
 namespace
 {
+	// WAV paths must not depend on the shell cwd — same idea as chdir-to-exe for textures.
+	void sfxPathNextToExe(char* out, size_t cap, const char* relative)
+	{
+		char* base = SDL_GetBasePath();
+		if (base != nullptr && base[0] != '\0')
+		{
+			std::snprintf(out, cap, "%s%s", base, relative);
+			SDL_free(base);
+			return;
+		}
+		if (base != nullptr)
+		{
+			SDL_free(base);
+		}
+		if (cap > 0)
+		{
+			std::snprintf(out, cap, "%s", relative);
+		}
+	}
+
+	bool loadWavFromKnownPaths(
+		const char* relative,
+		SDL_AudioSpec* outSpec,
+		Uint8** outBuf,
+		Uint32* outLen,
+		char* outPath,
+		size_t outPathCap)
+	{
+		char candidate[512];
+		const char* relCandidates[] = {
+			relative,
+			nullptr,
+			nullptr,
+		};
+		char exeSounds[256];
+		char srcSounds[256];
+		std::snprintf(exeSounds, sizeof exeSounds, "sounds/%s", relative);
+		std::snprintf(srcSounds, sizeof srcSounds, "../../game/sounds/%s", relative);
+		relCandidates[1] = exeSounds;
+		relCandidates[2] = srcSounds;
+
+		for (const char* rel : relCandidates)
+		{
+			sfxPathNextToExe(candidate, sizeof candidate, rel);
+			if (SDL_LoadWAV(candidate, outSpec, outBuf, outLen) != nullptr)
+			{
+				if (outPath != nullptr && outPathCap > 0)
+				{
+					std::snprintf(outPath, outPathCap, "%s", candidate);
+				}
+				return true;
+			}
+		}
+		return false;
+	}
+
 	bool audioSpecMatches(const SDL_AudioSpec& a, const SDL_AudioSpec& b)
 	{
 		return a.format == b.format && a.channels == b.channels && a.freq == b.freq;
+	}
+
+	bool convertWavToHave(
+		SDL_AudioSpec want,
+		Uint8* wavBuf,
+		Uint32 wavLen,
+		const SDL_AudioSpec& have,
+		unsigned char** outPcm,
+		Uint32* outLen,
+		bool* outFromLoadWav)
+	{
+		if (audioSpecMatches(want, have))
+		{
+			*outPcm = wavBuf;
+			*outLen = wavLen;
+			*outFromLoadWav = true;
+			return true;
+		}
+
+		SDL_AudioCVT cvt;
+		if (SDL_BuildAudioCVT(
+				&cvt, want.format, want.channels, want.freq, have.format, have.channels, have.freq) < 0)
+		{
+			SDL_FreeWAV(wavBuf);
+			return false;
+		}
+		if (cvt.len_mult <= 0)
+		{
+			SDL_FreeWAV(wavBuf);
+			return false;
+		}
+		cvt.len = static_cast<int>(wavLen);
+		cvt.buf = static_cast<Uint8*>(SDL_malloc(static_cast<size_t>(cvt.len) * static_cast<size_t>(cvt.len_mult)));
+		if (cvt.buf == nullptr)
+		{
+			SDL_FreeWAV(wavBuf);
+			return false;
+		}
+		std::memcpy(cvt.buf, wavBuf, static_cast<size_t>(wavLen));
+		SDL_FreeWAV(wavBuf);
+		if (SDL_ConvertAudio(&cvt) != 0)
+		{
+			SDL_free(cvt.buf);
+			return false;
+		}
+		*outPcm = cvt.buf;
+		*outLen = static_cast<Uint32>(cvt.len_cvt);
+		*outFromLoadWav = false;
+		return true;
 	}
 }
 
 void Game::shutdownWallHitAudio()
 {
+	freeFootstepClips();
+
+	if (mFootstepAudioDevice != 0 && mFootstepAudioDevice != mWallHitAudioDevice)
+	{
+		SDL_CloseAudioDevice(static_cast<SDL_AudioDeviceID>(mFootstepAudioDevice));
+	}
+	mFootstepAudioDevice = 0;
+
 	if (mWallHitAudioDevice != 0)
 	{
 		SDL_CloseAudioDevice(static_cast<SDL_AudioDeviceID>(mWallHitAudioDevice));
@@ -1713,73 +2711,281 @@ void Game::shutdownWallHitAudio()
 	}
 }
 
+void Game::freeFootstepClips()
+{
+	for (int i = 0; i < kFootstepClipCount; ++i)
+	{
+		if (mFootstepPcm[i] == nullptr)
+		{
+			continue;
+		}
+		if (mFootstepPcmFromLoadWav[i])
+		{
+			SDL_FreeWAV(mFootstepPcm[i]);
+		}
+		else
+		{
+			SDL_free(mFootstepPcm[i]);
+		}
+		mFootstepPcm[i] = nullptr;
+		mFootstepPcmLen[i] = 0;
+		mFootstepPcmFromLoadWav[i] = false;
+	}
+	mFootstepClipsReady = false;
+	mFootstepShuffleIndex = 0;
+}
+
+void Game::tryLoadFootstepClips(const SDL_AudioSpec& have)
+{
+	freeFootstepClips();
+
+	static const char* kWalkExt[] = { ".wav", ".WAV" };
+	char rel[96];
+	char path[512];
+	for (int i = 0; i < kFootstepClipCount; ++i)
+	{
+		bool loaded = false;
+		for (const char* ext : kWalkExt)
+		{
+			std::snprintf(rel, sizeof rel, "walkTemp%d%s", i + 1, ext);
+			SDL_AudioSpec wantWalk;
+			Uint8* walkBuf = nullptr;
+			Uint32 walkLen = 0;
+			if (!loadWavFromKnownPaths(rel, &wantWalk, &walkBuf, &walkLen, path, sizeof path))
+			{
+				continue;
+			}
+
+			unsigned char* pcm = nullptr;
+			Uint32 pcmLen = 0;
+			bool fromWav = false;
+			if (!convertWavToHave(wantWalk, walkBuf, walkLen, have, &pcm, &pcmLen, &fromWav))
+			{
+				char logMsg[320];
+				std::snprintf(
+					logMsg,
+					sizeof logMsg,
+					"Footstep audio conversion failed for %s",
+					path);
+				LogManager::getInstance().log(logMsg);
+				freeFootstepClips();
+				return;
+			}
+			mFootstepPcm[i] = pcm;
+			mFootstepPcmLen[i] = pcmLen;
+			mFootstepPcmFromLoadWav[i] = fromWav;
+			loaded = true;
+			break;
+		}
+		if (!loaded)
+		{
+			char logMsg[320];
+			std::snprintf(
+				logMsg,
+				sizeof logMsg,
+				"Footstep WAV not found for clip %d (tried %s). SDL: %s",
+				i + 1,
+				path,
+				SDL_GetError() != nullptr ? SDL_GetError() : "");
+			LogManager::getInstance().log(logMsg);
+			freeFootstepClips();
+			return;
+		}
+	}
+
+	mFootstepClipsReady = true;
+	std::iota(mFootstepShuffle.begin(), mFootstepShuffle.end(), 0);
+	std::shuffle(mFootstepShuffle.begin(), mFootstepShuffle.end(), mRng);
+	mFootstepShuffleIndex = 0;
+	LogManager::getInstance().log("Footsteps: 4 clips loaded (random shuffle per cycle).");
+}
+
+void Game::playNextFootstepClip()
+{
+	if (!mFootstepClipsReady || mFootstepAudioDevice == 0)
+	{
+		return;
+	}
+	if (mFootstepShuffleIndex >= kFootstepClipCount)
+	{
+		std::iota(mFootstepShuffle.begin(), mFootstepShuffle.end(), 0);
+		std::shuffle(mFootstepShuffle.begin(), mFootstepShuffle.end(), mRng);
+		mFootstepShuffleIndex = 0;
+	}
+	const int clip = mFootstepShuffle[static_cast<std::size_t>(mFootstepShuffleIndex)];
+	++mFootstepShuffleIndex;
+	const unsigned char* data = mFootstepPcm[clip];
+	const Uint32 len = mFootstepPcmLen[clip];
+	if (data == nullptr || len == 0)
+	{
+		return;
+	}
+
+	const SDL_AudioDeviceID dev = static_cast<SDL_AudioDeviceID>(mFootstepAudioDevice);
+	(void)SDL_QueueAudio(dev, data, len);
+}
+
+void Game::emitNoiseEvent(float x, float y, bool loud)
+{
+	mLastWallHitNoiseRadius = loud ? kWallNoiseRadiusSprint : kWallNoiseRadiusWalk;
+	if (loud)
+	{
+		mWallNoisePulseActiveSprint = true;
+		mWallNoisePulseAgeSprint = 0.0f;
+		mWallNoisePulseMaxRSprint = mLastWallHitNoiseRadius;
+		mWallNoisePulseCxSprint = x;
+		mWallNoisePulseCySprint = y;
+	}
+	else
+	{
+		mWallNoisePulseActiveWalk = true;
+		mWallNoisePulseAgeWalk = 0.0f;
+		mWallNoisePulseMaxRWalk = mLastWallHitNoiseRadius;
+		mWallNoisePulseCxWalk = x;
+		mWallNoisePulseCyWalk = y;
+	}
+
+	if (!mOcelotAwake)
+	{
+		const float edx = mOcelotX - x;
+		const float edy = mOcelotY - y;
+		const float noiseR = mLastWallHitNoiseRadius;
+		if (edx * edx + edy * edy <= noiseR * noiseR)
+		{
+			mOcelotAwake = true;
+			mOcelotState = OcelotState::Investigate;
+			mOcelotInvestigateX = x;
+			mOcelotInvestigateY = y;
+			mOcelotHearingRadius = noiseR;
+		}
+	}
+	else
+	{
+		const float edx = mOcelotX - x;
+		const float edy = mOcelotY - y;
+		const float noiseR = mLastWallHitNoiseRadius;
+		if (edx * edx + edy * edy <= noiseR * noiseR)
+		{
+			mOcelotState = OcelotState::Investigate;
+			mOcelotInvestigateX = x;
+			mOcelotInvestigateY = y;
+			mOcelotHearingRadius = noiseR;
+		}
+	}
+	for (EnemyAgent& enemy : mExtraEnemies)
+	{
+		const float edx = enemy.x - x;
+		const float edy = enemy.y - y;
+		const float noiseR = mLastWallHitNoiseRadius;
+		if (edx * edx + edy * edy <= noiseR * noiseR)
+		{
+			enemy.awake = true;
+			enemy.state = OcelotState::Investigate;
+			enemy.investigateX = x;
+			enemy.investigateY = y;
+			enemy.hearingRadius = noiseR;
+		}
+	}
+}
+
 bool Game::tryInitWallHitAudio()
 {
 	shutdownWallHitAudio();
 
-	SDL_AudioSpec want;
-	Uint8* wavBuf = 0;
-	Uint32 wavLen = 0;
-	if (SDL_LoadWAV("sounds/thud.wav", &want, &wavBuf, &wavLen) == 0)
-	{
-		return false;
-	}
+	char thudPath[512];
+	SDL_AudioSpec wantThud;
+	Uint8* thudBuf = nullptr;
+	Uint32 thudLen = 0;
+	const bool haveThud =
+		loadWavFromKnownPaths("thud.wav", &wantThud, &thudBuf, &thudLen, thudPath, sizeof thudPath);
 
 	SDL_AudioSpec have;
 	const Uint32 allow =
 		SDL_AUDIO_ALLOW_FREQUENCY_CHANGE | SDL_AUDIO_ALLOW_FORMAT_CHANGE | SDL_AUDIO_ALLOW_CHANNELS_CHANGE;
-	SDL_AudioDeviceID dev = SDL_OpenAudioDevice(0, 0, &want, &have, allow);
-	if (dev == 0)
-	{
-		SDL_FreeWAV(wavBuf);
-		return false;
-	}
 
-	if (audioSpecMatches(want, have))
+	SDL_AudioDeviceID dev = 0;
+	if (haveThud)
 	{
-		mWallHitPcm = wavBuf;
-		mWallHitPcmLen = wavLen;
-		mWallHitPcmFromLoadWav = true;
+		dev = SDL_OpenAudioDevice(nullptr, 0, &wantThud, &have, allow);
 	}
 	else
 	{
-		SDL_AudioCVT cvt;
-		if (SDL_BuildAudioCVT(
-				&cvt, want.format, want.channels, want.freq, have.format, have.channels, have.freq) < 0)
+		LogManager::getInstance().log(
+			"sounds/thud.wav missing — opening default audio device for footsteps only.");
+		dev = SDL_OpenAudioDevice(nullptr, 0, nullptr, &have, allow);
+		if (dev == 0)
 		{
-			SDL_FreeWAV(wavBuf);
+			char probePath[512];
+			SDL_AudioSpec wantWalkProbe;
+			Uint8* probeBuf = nullptr;
+			Uint32 probeLen = 0;
+			if (loadWavFromKnownPaths(
+					"walkTemp1.wav", &wantWalkProbe, &probeBuf, &probeLen, probePath, sizeof probePath))
+			{
+				dev = SDL_OpenAudioDevice(nullptr, 0, &wantWalkProbe, &have, allow);
+				SDL_FreeWAV(probeBuf);
+			}
+			else
+			{
+				if (loadWavFromKnownPaths(
+						"walkTemp1.WAV", &wantWalkProbe, &probeBuf, &probeLen, probePath, sizeof probePath))
+				{
+					dev = SDL_OpenAudioDevice(nullptr, 0, &wantWalkProbe, &have, allow);
+					SDL_FreeWAV(probeBuf);
+				}
+			}
+		}
+	}
+
+	if (dev == 0)
+	{
+		if (haveThud)
+		{
+			SDL_FreeWAV(thudBuf);
+		}
+		return false;
+	}
+
+	if (haveThud)
+	{
+		unsigned char* wallPcm = nullptr;
+		Uint32 wallLen = 0;
+		bool wallFromWav = false;
+		if (!convertWavToHave(wantThud, thudBuf, thudLen, have, &wallPcm, &wallLen, &wallFromWav))
+		{
 			SDL_CloseAudioDevice(dev);
 			return false;
 		}
-		if (cvt.len_mult <= 0)
-		{
-			SDL_FreeWAV(wavBuf);
-			SDL_CloseAudioDevice(dev);
-			return false;
-		}
-		cvt.len = static_cast<int>(wavLen);
-		cvt.buf = static_cast<Uint8*>(SDL_malloc(static_cast<size_t>(cvt.len) * static_cast<size_t>(cvt.len_mult)));
-		if (cvt.buf == 0)
-		{
-			SDL_FreeWAV(wavBuf);
-			SDL_CloseAudioDevice(dev);
-			return false;
-		}
-		std::memcpy(cvt.buf, wavBuf, static_cast<size_t>(wavLen));
-		SDL_FreeWAV(wavBuf);
-		if (SDL_ConvertAudio(&cvt) != 0)
-		{
-			SDL_free(cvt.buf);
-			SDL_CloseAudioDevice(dev);
-			return false;
-		}
-		mWallHitPcm = cvt.buf;
-		mWallHitPcmLen = static_cast<Uint32>(cvt.len_cvt);
+		mWallHitPcm = wallPcm;
+		mWallHitPcmLen = wallLen;
+		mWallHitPcmFromLoadWav = wallFromWav;
+	}
+	else
+	{
+		mWallHitPcm = nullptr;
+		mWallHitPcmLen = 0;
 		mWallHitPcmFromLoadWav = false;
 	}
 
 	mWallHitAudioDevice = static_cast<std::uint32_t>(dev);
+	mFootstepAudioDevice = mWallHitAudioDevice;
+
+	SDL_AudioDeviceID footDev = SDL_OpenAudioDevice(nullptr, 0, &have, nullptr, 0);
+	if (footDev != 0)
+	{
+		mFootstepAudioDevice = static_cast<std::uint32_t>(footDev);
+		SDL_PauseAudioDevice(footDev, 0);
+	}
+	else
+	{
+		LogManager::getInstance().log(
+			"Footsteps using same audio device as wall thud (overlap unavailable on this setup).");
+	}
+
 	SDL_PauseAudioDevice(dev, 0);
+
+	tryLoadFootstepClips(have);
+
 	return true;
 }
 

@@ -20,8 +20,15 @@
 #include <cassert>
 #include <cmath>
 
+#if defined(_WIN32)
+#include <direct.h>
+#else
+#include <unistd.h>
+#endif
+
 Renderer::Renderer()
 	: mTextureManager(0)
+	, mWindow(0)
 	, mSpriteShader(0)
 	, mLineShader(0)
 	, mVisionMaskShader(0)
@@ -76,7 +83,16 @@ Renderer::~Renderer()
 	delete mTextureManager;
 	mTextureManager = 0;
 
-	SDL_DestroyWindow(mWindow);
+	if (mGlContext != 0)
+	{
+		SDL_GL_DeleteContext(mGlContext);
+		mGlContext = 0;
+	}
+	if (mWindow != 0)
+	{
+		SDL_DestroyWindow(mWindow);
+		mWindow = 0;
+	}
 	IMG_Quit();
 	SDL_Quit();
 }
@@ -87,6 +103,20 @@ bool Renderer::initialize(bool windowed, int width, int height)
 	{
 		logSdlError();
 		return false;
+	}
+
+	// Load textures/shaders relative to the executable, not the shell cwd.
+	{
+		char* appDir = SDL_GetBasePath();
+		if (appDir != nullptr)
+		{
+#if defined(_WIN32)
+			(void)_chdir(appDir);
+#else
+			(void)chdir(appDir);
+#endif
+			SDL_free(appDir);
+		}
 	}
 
 	char* shaderBase = SDL_GetBasePath();
@@ -140,7 +170,10 @@ bool Renderer::initialize(bool windowed, int width, int height)
 
 	bool initialized = initializeOpenGL(width, height);
 
-	setFullscreen(!windowed);
+	if (initialized)
+	{
+		setFullscreen(!windowed);
+	}
 
 	if (initialized)
 	{
@@ -163,12 +196,35 @@ bool Renderer::initialize(bool windowed, int width, int height)
 	return initialized;
 }
 
+void Renderer::destroyWindowAndContext()
+{
+	delete mSpriteVertexData;
+	mSpriteVertexData = 0;
+	delete mSpriteShader;
+	mSpriteShader = 0;
+	if (mGlContext != 0)
+	{
+		SDL_GL_DeleteContext(mGlContext);
+		mGlContext = 0;
+	}
+	if (mWindow != 0)
+	{
+		SDL_DestroyWindow(mWindow);
+		mWindow = 0;
+	}
+}
+
 bool Renderer::initializeOpenGL(int screenWidth, int screenHeight)
 {
 	mWidth = screenWidth;
 	mHeight = screenHeight;
 
 	mWindow = SDL_CreateWindow("COMP710 Game Framework 2025", SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED, screenWidth, screenHeight, SDL_WINDOW_OPENGL);
+	if (mWindow == 0)
+	{
+		logSdlError();
+		return false;
+	}
 
 	SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_CORE);
 	SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 3);
@@ -183,12 +239,19 @@ bool Renderer::initializeOpenGL(int screenWidth, int screenHeight)
 	SDL_GL_SetAttribute(SDL_GL_ACCELERATED_VISUAL, 1);
 
 	mGlContext = SDL_GL_CreateContext(mWindow);
+	if (mGlContext == 0)
+	{
+		logSdlError();
+		destroyWindowAndContext();
+		return false;
+	}
 
 	glewExperimental = GL_TRUE;
 	GLenum glewResult = glewInit();
 
 	if (glewResult != GLEW_OK)
 	{
+		destroyWindowAndContext();
 		return false;
 	}
 
@@ -205,6 +268,10 @@ bool Renderer::initializeOpenGL(int screenWidth, int screenHeight)
 		{
 			LogManager::getInstance().log("Vision mask shader failed (cone vision disabled).");
 		}
+	}
+	else
+	{
+		destroyWindowAndContext();
 	}
 
 	return shadersLoaded;
@@ -270,11 +337,17 @@ Sprite* Renderer::createSprite(const char* filename)
 	assert(mTextureManager);
 
 	Texture* texture = mTextureManager->getTexture(filename);
+	if (texture == 0)
+	{
+		return 0;
+	}
 
 	Sprite* sprite = new Sprite();
 	if (!sprite->initialize(*texture))
 	{
 		LogManager::getInstance().log("Sprite Failed to Create!");
+		delete sprite;
+		return 0;
 	}
 
 	return sprite;
@@ -290,6 +363,12 @@ bool Renderer::setupSpriteShader()
 	mSpriteShader = new Shader();
 
 	bool loaded = mSpriteShader->load("shaders/sprite.vert", "shaders/sprite.frag");
+	if (!loaded)
+	{
+		delete mSpriteShader;
+		mSpriteShader = 0;
+		return false;
+	}
 
 	mSpriteShader->setActive();
 
@@ -305,7 +384,7 @@ bool Renderer::setupSpriteShader()
 
 	mSpriteVertexData = new VertexArray(vertices, 4, indices, 6);
 
-	return loaded;
+	return true;
 }
 
 void Renderer::drawSprite(Sprite& sprite)

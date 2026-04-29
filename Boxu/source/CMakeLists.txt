@@ -105,10 +105,21 @@ add_custom_command(
           "$<TARGET_FILE_DIR:gpframework>/shaders"
   COMMENT "Copying shaders next to executable"
 )
-add_custom_command(
-  TARGET gpframework POST_BUILD
-  COMMAND ${CMAKE_COMMAND} -E copy_directory
-          "${CMAKE_CURRENT_SOURCE_DIR}/../game/sounds"
-          "$<TARGET_FILE_DIR:gpframework>/sounds"
-  COMMENT "Copying sounds next to executable"
-)
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/../game/sounds")
+  add_custom_command(
+    TARGET gpframework POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_directory
+            "${CMAKE_CURRENT_SOURCE_DIR}/../game/sounds"
+            "$<TARGET_FILE_DIR:gpframework>/sounds"
+    COMMENT "Copying sounds next to executable"
+  )
+endif()
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/../game/textures")
+  add_custom_command(
+    TARGET gpframework POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_directory
+            "${CMAKE_CURRENT_SOURCE_DIR}/../game/textures"
+            "$<TARGET_FILE_DIR:gpframework>/textures"
+    COMMENT "Copying textures next to executable"
+  )
+endif()

@@ -4,8 +4,11 @@
 
 #include "logmanager.h"
 
+#include <SDL.h>
 #include <SDL_image.h>
 #include <cassert>
+#include <cstring>
+#include <vector>
 #include <GL/glew.h>
 
 
@@ -28,43 +31,46 @@ Texture::~Texture()
 
 bool Texture::initialize(const char* filename)
 {
-	SDL_Surface* surface = IMG_Load(filename);
-
-	if (surface)
-	{
-		mWidth = surface->w;
-		mHeight = surface->h;
-
-		int bytesPerPixel = surface->format->BytesPerPixel;
-
-		unsigned int format = 0;
-
-		if (bytesPerPixel == 3)
-		{
-			format = GL_RGB;
-		}
-		else if (bytesPerPixel == 4)
-		{
-			format = GL_RGBA;
-		}
-
-		glGenTextures(1, &mTextureId);
-		glBindTexture(GL_TEXTURE_2D, mTextureId);
-
-		glTexImage2D(GL_TEXTURE_2D, 0, format, mWidth, mHeight, 0, format, GL_UNSIGNED_BYTE, surface->pixels);
-
-		SDL_FreeSurface(surface);
-		surface = 0;
-
-		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-	}
-	else
+	SDL_Surface* loaded = IMG_Load(filename);
+	if (loaded == nullptr)
 	{
 		LogManager::getInstance().log("Texture failed to load!");
-		assert(0);
 		return false;
 	}
+
+	SDL_Surface* surface = SDL_ConvertSurfaceFormat(loaded, SDL_PIXELFORMAT_RGBA32, 0);
+	SDL_FreeSurface(loaded);
+	if (surface == nullptr)
+	{
+		LogManager::getInstance().log("Texture format conversion failed!");
+		return false;
+	}
+
+	mWidth = surface->w;
+	mHeight = surface->h;
+	const int w = mWidth;
+	const int h = mHeight;
+	const int pitch = surface->pitch;
+	const unsigned char* src = static_cast<const unsigned char*>(surface->pixels);
+
+	// OpenGL's first row is the bottom of the texture; SDL's first row is the top of the image.
+	std::vector<unsigned char> rgba(static_cast<std::size_t>(w) * static_cast<std::size_t>(h) * 4u);
+	for (int y = 0; y < h; ++y)
+	{
+		const unsigned char* srcRow = src + static_cast<std::size_t>(y) * static_cast<std::size_t>(pitch);
+		unsigned char* dstRow = &rgba[static_cast<std::size_t>(h - 1 - y) * static_cast<std::size_t>(w) * 4u];
+		std::memcpy(dstRow, srcRow, static_cast<std::size_t>(w) * 4u);
+	}
+
+	SDL_FreeSurface(surface);
+	surface = nullptr;
+
+	glGenTextures(1, &mTextureId);
+	glBindTexture(GL_TEXTURE_2D, mTextureId);
+	glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, mWidth, mHeight, 0, GL_RGBA, GL_UNSIGNED_BYTE, rgba.data());
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+	glBindTexture(GL_TEXTURE_2D, 0);
 
 	return true;
 }

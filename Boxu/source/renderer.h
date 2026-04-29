@@ -60,6 +60,7 @@ public:
 
 protected:
 	bool initializeOpenGL(int screenWidth, int screenHeight);
+	void destroyWindowAndContext();
 	void setFullscreen(bool fullscreen);
 
 	void logSdlError();
