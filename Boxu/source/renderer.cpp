@@ -421,6 +421,7 @@ void Renderer::drawSprite(Sprite& sprite)
 	matrixMultiply(orthoViewProj, cam, ortho);
 
 	mSpriteShader->setVector4Uniform("color", sprite.getRedTint(), sprite.getGreenTint(), sprite.getBlueTint(), sprite.getAlpha());
+	mSpriteShader->setIntUniform("uCircleMask", sprite.getCircleMask() ? 1 : 0);
 
 	mSpriteShader->setMatrixUniform("uViewProj", orthoViewProj);
 

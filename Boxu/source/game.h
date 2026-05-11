@@ -56,6 +56,10 @@ public:
 	float chaseSpeed = 108.0f;
 	float investigateSpeed = 90.0f;
 	float searchSpeed = 82.0f;
+	float stuckTimer = 0.0f;
+	float recoverTimer = 0.0f;
+	float recoverDirX = 0.0f;
+	float recoverDirY = 0.0f;
 	bool awake = true;
 	OcelotState state = OcelotState::Investigate;
 	int patrolIndex = 0;
@@ -109,6 +113,14 @@ protected:
 	void layoutSplashSpriteCenter(Sprite* sprite, Renderer& renderer);
 
 private:
+	struct NoisePulse
+	{
+		float age = 0.0f;
+		float maxRadius = 0.0f;
+		float cx = 0.0f;
+		float cy = 0.0f;
+	};
+
 	Game();
 	~Game();
 	Game(const Game& game);
@@ -119,14 +131,32 @@ private:
 	Sprite* mFloor;
 	Sprite* mSuneku;
 	Sprite* mSunekuHitboxDebug;
+	Sprite* mOcelotSprite;
+	Sprite* mEnemySprite;
 	Texture* mVersionTexture;
 	Sprite* mVersionSprite;
 	Texture* mHudObjectiveTexture;
 	Sprite* mHudObjectiveSprite;
+	Texture* mHudObjectiveKeyTexture;
+	Sprite* mHudObjectiveKeySprite;
 	Texture* mHudWinTexture;
 	Sprite* mHudWinSprite;
 	Texture* mHudLoseTexture;
 	Sprite* mHudLoseSprite;
+	Texture* mHudDebugTexture;
+	Sprite* mHudDebugSprite;
+	Texture* mHudControlsPromptTexture;
+	Sprite* mHudControlsPromptSprite;
+	Texture* mHudControlsMenuTexture;
+	Sprite* mHudControlsMenuSprite;
+	Texture* mLevelTitleTexture;
+	Sprite* mLevelTitleSprite;
+	Texture* mNeedKeyTexture;
+	Sprite* mNeedKeySprite;
+	Texture* mHeadToExtractTexture;
+	Sprite* mHeadToExtractSprite;
+	Texture* mExtractWordTexture;
+	Sprite* mExtractWordSprite;
 	float mSunekuX;
 	float mSunekuY;
 	float mSunekuHitboxHalfW;
@@ -138,6 +168,10 @@ private:
 	float mSunekuFacingDeg;
 	float mSunekuMoveSpeed;
 	bool mShowSunekuHitbox;
+	bool mShowControlsMenu;
+	float mLevelTitleTimer;
+	float mNeedKeyTimer;
+	float mHeadToExtractTimer;
 
 	std::int64_t mLastTime;
 	float mExecutionTime;
@@ -164,22 +198,16 @@ private:
 	bool mFootstepPcmFromLoadWav[kFootstepClipCount];
 	bool mFootstepClipsReady;
 	float mFootstepCooldown;
+	float mWalkPulseCooldown;
+	float mSprintPulseCooldown;
 	int mFootstepShuffleIndex;
 	std::array<int, kFootstepClipCount> mFootstepShuffle;
 
 	std::vector<bool> mOutlineWallPrevTouch;
 
 	float mLastWallHitNoiseRadius;
-	float mWallNoisePulseAgeWalk;
-	float mWallNoisePulseMaxRWalk;
-	float mWallNoisePulseCxWalk;
-	float mWallNoisePulseCyWalk;
-	bool mWallNoisePulseActiveWalk;
-	float mWallNoisePulseAgeSprint;
-	float mWallNoisePulseMaxRSprint;
-	float mWallNoisePulseCxSprint;
-	float mWallNoisePulseCySprint;
-	bool mWallNoisePulseActiveSprint;
+	std::vector<NoisePulse> mWalkNoisePulses;
+	std::vector<NoisePulse> mSprintNoisePulses;
 
 	float mOcelotX;
 	float mOcelotY;

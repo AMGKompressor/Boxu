@@ -21,6 +21,7 @@ Sprite::Sprite()
 	, mTintRed(1.0f)
 	, mTintGreen(1.0f)
 	, mTintBlue(1.0f)
+	, mCircleMask(false)
 {
 
 }
@@ -162,4 +163,14 @@ void Sprite::setBlueTint(float value)
 float Sprite::getBlueTint() const
 {
 	return mTintBlue;
+}
+
+void Sprite::setCircleMask(bool enabled)
+{
+	mCircleMask = enabled;
+}
+
+bool Sprite::getCircleMask() const
+{
+	return mCircleMask;
 }

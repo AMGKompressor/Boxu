@@ -1,0 +1,53 @@
+GitHub commit log – student 23196422
+Generated: 2026-05-01T10:57:47Z
+Repository: https://github.com/AMGKompressor/Boxu.git
+
+----
+
+5400a2d | 2026-04-13 11:44:15 +1200 | Boxu: initial import (GP framework + tutorial level)
+Made-with: Cursor
+
+
+3ce9087 | 2026-04-13 12:25:36 +1200 | chore: gitignore draft docs paths
+Made-with: Cursor
+
+
+0d38dfd | 2026-04-13 12:27:43 +1200 | Update Boxu sources
+Made-with: Cursor
+
+
+424eac4 | 2026-04-13 12:37:56 +1200 | Rename sphere enemy to Ocelot; stable checkpoint
+- Member and constant identifiers use Ocelot naming (spawn, body, chase).
+- Header comment describes Ocelot wake-on-noise and chase behaviour.
+- No gameplay changes; build verified.
+
+Made-with: Cursor
+
+
+e1dfc08 | 2026-04-14 13:21:23 +1200 | Version 0.1 Alpha
+Hitbox registers how hard the player hits the walls—walking into a wall vs running into a wall.
+
+Walking into a wall triggers nearby enemies to acknowledge and follow the player depending on whether the enemy is in radius (enemy currently has no hitbox and does not respect walls; it only follows the player).
+
+Early line of sight: a cone-like field of view from the direction the mouse faces (and thus the player). Still a little buggy; it does not fully work from facing alone and seems linked to where the player is standing, so there is some blindness where there should be vision.
+
+Made-with: Cursor
+
+
+d80d271 | 2026-04-15 16:19:02 +1200 | Add mission loop with key card, extraction, Ocelot chase, and HUD
+I've added a small mission loop regarding picking up a key card to then activate the south extraction. Hitting walls would cause Ocelot to chase me and if it catches me it's a mission failed. R can restart the game, and a HUD to explain the version including the objective, when the player has won/lost.
+
+Made-with: Cursor
+
+
+1313a03 | 2026-04-27 18:25:20 +1200 | Version 0.2 alpha: add Ocelot vision and debug hearing overlay.
+Enemy now runs an active vision and awareness state loop with chase/search transitions and debug hearing radius visualization, while movement is constrained against map hitboxes. Pathfinding is still naive and can push into walls while pursuing direct targets, but losing line of sight now triggers a cooldown-style return behavior.
+
+
+6f2c3a7 | 2026-04-29 18:32:40 +1200 | Version 0.2 alpha: ship splash intro, leak-path hardening, and footstep stealth audio.
+Adds image-based startup splash sequencing and robust asset path handling, fixes renderer/texture failure-path leaks, and introduces randomized footstep audio with debug/hearing gameplay hooks while preserving stable audio behavior after reverted overlap experiments.
+
+
+155d696 | 2026-04-29 18:34:57 +1200 | Version 0.4 alpha: update in-game version overlay.
+Bumps the HUD version label to 0.4 alpha so the runtime display matches the latest project milestone and push state.
+

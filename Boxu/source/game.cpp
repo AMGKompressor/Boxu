@@ -38,13 +38,26 @@ namespace
 	const float kOcelotInvestigateSpeed = 90.0f;
 	const float kOcelotSearchSpeed = 82.0f;
 	const float kOcelotStopDist = 72.0f;
+	const float kEnemyTurnRateDegPerSec = 260.0f;
+	const float kOcelotTurnRateDegPerSec = 220.0f;
 	const float kOcelotVisionRange = 520.0f;
 	const float kOcelotVisionHalfAngleDeg = 40.0f;
 	const float kOcelotSearchDuration = 2.2f;
+	const float kChasePersistenceSec = 3.0f;
 	const float kOcelotHearRadiusDefault = 320.0f;
 
 	const float kFootstepIntervalWalk = 0.42f;
 	const float kFootstepIntervalSprint = 0.14f;
+	const float kWalkPulseInterval = 0.42f;
+	const float kSprintPulseInterval = 0.29f;
+	const float kLevelTitleFadeInSec = 0.55f;
+	const float kLevelTitleHoldSec = 0.85f;
+	const float kLevelTitleFadeOutSec = 0.75f;
+	const float kLevelTitleDurationSec = kLevelTitleFadeInSec + kLevelTitleHoldSec + kLevelTitleFadeOutSec;
+	const float kNeedKeyMessageDurationSec = 1.75f;
+	const float kNeedKeyMessageFadeOutSec = 0.45f;
+	const float kHeadToExtractMessageDurationSec = 2.0f;
+	const float kHeadToExtractMessageFadeOutSec = 0.5f;
 	const std::array<float, 8> kOcelotPatrolPointsL1 = {
 		2060.0f, 420.0f,
 		2390.0f, 760.0f,
@@ -482,8 +495,26 @@ namespace
 		case 'p':
 			rows = {14, 17, 17, 17, 14, 16, 16};
 			return true;
+		case 'b':
+			rows = {16, 16, 30, 17, 17, 17, 30};
+			return true;
+		case 'e':
+			rows = {0, 14, 17, 31, 16, 17, 14};
+			return true;
 		case 'h':
 			rows = {16, 16, 16, 31, 17, 17, 17};
+			return true;
+		case 'm':
+			rows = {0, 26, 21, 21, 17, 17, 17};
+			return true;
+		case 'n':
+			rows = {0, 30, 17, 17, 17, 17, 17};
+			return true;
+		case 's':
+			rows = {0, 15, 16, 14, 1, 17, 14};
+			return true;
+		case 't':
+			rows = {8, 8, 30, 8, 8, 9, 6};
 			return true;
 		case 'A':
 			rows = {14, 17, 17, 31, 17, 17, 17};
@@ -770,9 +801,23 @@ namespace
 	{
 		static const char kExt[][8] = { ".png", ".jpg", ".jpeg" };
 		char path[192];
+		auto fileExists = [](const char* p) -> bool
+		{
+			SDL_RWops* rw = SDL_RWFromFile(p, "rb");
+			if (rw == nullptr)
+			{
+				return false;
+			}
+			SDL_RWclose(rw);
+			return true;
+		};
 		for (std::size_t i = 0; i < sizeof(kExt) / sizeof(kExt[0]); ++i)
 		{
 			std::snprintf(path, sizeof path, "textures/%s%s", basename, kExt[i]);
+			if (!fileExists(path))
+			{
+				continue;
+			}
 			Sprite* s = r->createSprite(path);
 			if (s != nullptr)
 			{
@@ -805,14 +850,32 @@ Game::Game()
 	, mFloor(0)
 	, mSuneku(0)
 	, mSunekuHitboxDebug(0)
+	, mOcelotSprite(0)
+	, mEnemySprite(0)
 	, mVersionTexture(0)
 	, mVersionSprite(0)
 	, mHudObjectiveTexture(0)
 	, mHudObjectiveSprite(0)
+	, mHudObjectiveKeyTexture(0)
+	, mHudObjectiveKeySprite(0)
 	, mHudWinTexture(0)
 	, mHudWinSprite(0)
 	, mHudLoseTexture(0)
 	, mHudLoseSprite(0)
+	, mHudDebugTexture(0)
+	, mHudDebugSprite(0)
+	, mHudControlsPromptTexture(0)
+	, mHudControlsPromptSprite(0)
+	, mHudControlsMenuTexture(0)
+	, mHudControlsMenuSprite(0)
+	, mLevelTitleTexture(0)
+	, mLevelTitleSprite(0)
+	, mNeedKeyTexture(0)
+	, mNeedKeySprite(0)
+	, mHeadToExtractTexture(0)
+	, mHeadToExtractSprite(0)
+	, mExtractWordTexture(0)
+	, mExtractWordSprite(0)
 	, mSunekuX(0.0f)
 	, mSunekuY(0.0f)
 	, mSunekuHitboxHalfW(48.0f)
@@ -824,6 +887,10 @@ Game::Game()
 	, mSunekuFacingDeg(0.0f)
 	, mSunekuMoveSpeed(kWalkMoveSpeed)
 	, mShowSunekuHitbox(true)
+	, mShowControlsMenu(false)
+	, mLevelTitleTimer(0.0f)
+	, mNeedKeyTimer(0.0f)
+	, mHeadToExtractTimer(0.0f)
 	, mLastTime(0)
 	, mExecutionTime(0.0f)
 	, mElapsedSeconds(0.0f)
@@ -841,20 +908,14 @@ Game::Game()
 	, mWallHitPcmFromLoadWav(false)
 	, mFootstepClipsReady(false)
 	, mFootstepCooldown(0.0f)
+	, mWalkPulseCooldown(0.0f)
+	, mSprintPulseCooldown(0.0f)
 	, mFootstepShuffleIndex(0)
 	, mFootstepShuffle{ {0, 1, 2, 3} }
 	, mOutlineWallPrevTouch{}
 	, mLastWallHitNoiseRadius(0.0f)
-	, mWallNoisePulseAgeWalk(0.0f)
-	, mWallNoisePulseMaxRWalk(0.0f)
-	, mWallNoisePulseCxWalk(0.0f)
-	, mWallNoisePulseCyWalk(0.0f)
-	, mWallNoisePulseActiveWalk(false)
-	, mWallNoisePulseAgeSprint(0.0f)
-	, mWallNoisePulseMaxRSprint(0.0f)
-	, mWallNoisePulseCxSprint(0.0f)
-	, mWallNoisePulseCySprint(0.0f)
-	, mWallNoisePulseActiveSprint(false)
+	, mWalkNoisePulses()
+	, mSprintNoisePulses()
 	, mOcelotX(kOcelotSpawnX)
 	, mOcelotY(kOcelotSpawnY)
 	, mOcelotFacingDeg(180.0f)
@@ -905,6 +966,12 @@ Game::~Game()
 	delete mFloor;
 	mFloor = 0;
 
+	delete mOcelotSprite;
+	mOcelotSprite = 0;
+
+	delete mEnemySprite;
+	mEnemySprite = 0;
+
 	delete mVersionSprite;
 	mVersionSprite = 0;
 	delete mVersionTexture;
@@ -914,6 +981,10 @@ Game::~Game()
 	mHudObjectiveSprite = 0;
 	delete mHudObjectiveTexture;
 	mHudObjectiveTexture = 0;
+	delete mHudObjectiveKeySprite;
+	mHudObjectiveKeySprite = 0;
+	delete mHudObjectiveKeyTexture;
+	mHudObjectiveKeyTexture = 0;
 	delete mHudWinSprite;
 	mHudWinSprite = 0;
 	delete mHudWinTexture;
@@ -922,6 +993,40 @@ Game::~Game()
 	mHudLoseSprite = 0;
 	delete mHudLoseTexture;
 	mHudLoseTexture = 0;
+	delete mHudDebugSprite;
+	mHudDebugSprite = 0;
+	delete mHudDebugTexture;
+	mHudDebugTexture = 0;
+
+	delete mHudControlsPromptSprite;
+	mHudControlsPromptSprite = 0;
+	delete mHudControlsPromptTexture;
+	mHudControlsPromptTexture = 0;
+
+	delete mHudControlsMenuSprite;
+	mHudControlsMenuSprite = 0;
+	delete mHudControlsMenuTexture;
+	mHudControlsMenuTexture = 0;
+
+	delete mLevelTitleSprite;
+	mLevelTitleSprite = 0;
+	delete mLevelTitleTexture;
+	mLevelTitleTexture = 0;
+
+	delete mNeedKeySprite;
+	mNeedKeySprite = 0;
+	delete mNeedKeyTexture;
+	mNeedKeyTexture = 0;
+
+	delete mHeadToExtractSprite;
+	mHeadToExtractSprite = 0;
+	delete mHeadToExtractTexture;
+	mHeadToExtractTexture = 0;
+
+	delete mExtractWordSprite;
+	mExtractWordSprite = 0;
+	delete mExtractWordTexture;
+	mExtractWordTexture = 0;
 
 	delete mSplashAutSprite;
 	mSplashAutSprite = 0;
@@ -943,7 +1048,7 @@ bool Game::initialize()
 	int bbHeight = 768;
 
 	mRenderer = new Renderer();
-	if (!mRenderer->initialize(true, bbWidth, bbHeight))
+	if (!mRenderer->initialize(false, bbWidth, bbHeight))
 	{
 		LogManager::getInstance().log("Renderer failed to initialize!");
 		delete mRenderer;
@@ -993,6 +1098,19 @@ bool Game::initialize()
 	}
 
 	mFloor = 0;
+	mFloor = mRenderer->createSprite("textures/floorTex.png");
+	if (mFloor != 0)
+	{
+		mFloor->setAngle(0.0f);
+		mFloor->setRedTint(0.12f);
+		mFloor->setGreenTint(0.12f);
+		mFloor->setBlueTint(0.12f);
+		mFloor->setAlpha(1.0f);
+	}
+	else
+	{
+		LogManager::getInstance().log("Floor texture failed to load; using flat colour floor.");
+	}
 
 	mSuneku = mRenderer->createSprite("textures/board8x8.png");
 	if (mSuneku != 0)
@@ -1038,6 +1156,36 @@ bool Game::initialize()
 		LogManager::getInstance().log("Failed to create Suneku sprite.");
 	}
 
+	mOcelotSprite = mRenderer->createSprite("textures/enemTex.png");
+	if (mOcelotSprite != 0)
+	{
+		mOcelotSprite->setAngle(0.0f);
+		mOcelotSprite->setRedTint(0.14f);
+		mOcelotSprite->setGreenTint(0.42f);
+		mOcelotSprite->setBlueTint(0.18f);
+		mOcelotSprite->setAlpha(1.0f);
+		mOcelotSprite->setCircleMask(true);
+	}
+	else
+	{
+		LogManager::getInstance().log("Ocelot texture failed to load; using debug outline fallback.");
+	}
+
+	mEnemySprite = mRenderer->createSprite("textures/enemTex.png");
+	if (mEnemySprite != 0)
+	{
+		mEnemySprite->setAngle(0.0f);
+		mEnemySprite->setRedTint(1.0f);
+		mEnemySprite->setGreenTint(0.44f);
+		mEnemySprite->setBlueTint(0.12f);
+		mEnemySprite->setAlpha(1.0f);
+		mEnemySprite->setCircleMask(true);
+	}
+	else
+	{
+		LogManager::getInstance().log("Enemy texture failed to load; using debug outline fallback.");
+	}
+
 	if (SDL_InitSubSystem(SDL_INIT_AUDIO) < 0)
 	{
 		LogManager::getInstance().log("SDL audio unavailable (continuing without wall-hit sound).");
@@ -1053,7 +1201,7 @@ bool Game::initialize()
 	std::vector<unsigned char> versionRgba;
 	int vrW = 0;
 	int vrH = 0;
-	const char* kVersionOverlayText = "0.4 alpha";
+	const char* kVersionOverlayText = "alpha 0.5";
 	if (!buildLabelRgbaMultiline(kVersionOverlayText, 3, 4, 3, 0, versionRgba, vrW, vrH))
 	{
 		LogManager::getInstance().log("Version label raster failed.");
@@ -1091,11 +1239,22 @@ bool Game::initialize()
 	if (!tryCreateLabelSprite(
 			mHudObjectiveTexture,
 			mHudObjectiveSprite,
-			"GET KEY CARD\nGO SOUTH TO EXIT\nR: RESTART",
+			"GET\n\nGO SOUTH TO EXIT\nR: RESTART",
 			2,
 			4))
 	{
 		LogManager::getInstance().log("HUD objective label failed to build.");
+	}
+	if (!tryCreateLabelSprite(mHudObjectiveKeyTexture, mHudObjectiveKeySprite, "KEY CARD", 2, 0))
+	{
+		LogManager::getInstance().log("HUD objective key-card label failed to build.");
+	}
+	if (mHudObjectiveKeySprite != 0)
+	{
+		mHudObjectiveKeySprite->setRedTint(0.25f);
+		mHudObjectiveKeySprite->setGreenTint(0.55f);
+		mHudObjectiveKeySprite->setBlueTint(0.95f);
+		mHudObjectiveKeySprite->setAlpha(0.95f);
 	}
 	if (!tryCreateLabelSprite(mHudWinTexture, mHudWinSprite, "MISSION\nCOMPLETE\nPRESS R", 4, 6))
 	{
@@ -1104,6 +1263,53 @@ bool Game::initialize()
 	if (!tryCreateLabelSprite(mHudLoseTexture, mHudLoseSprite, "CAUGHT\nPRESS R", 4, 6))
 	{
 		LogManager::getInstance().log("HUD lose label failed to build.");
+	}
+	if (!tryCreateLabelSprite(mHudDebugTexture, mHudDebugSprite, "DEBUG VIEW", 3, 0))
+	{
+		LogManager::getInstance().log("HUD debug label failed to build.");
+	}
+	if (!tryCreateLabelSprite(mHudControlsPromptTexture, mHudControlsPromptSprite, "PRESS C FOR CONTROLS", 2, 0))
+	{
+		LogManager::getInstance().log("HUD controls prompt failed to build.");
+	}
+	if (!tryCreateLabelSprite(
+			mHudControlsMenuTexture,
+			mHudControlsMenuSprite,
+			"CONTROLS\n\nWASD: MOVE\nMOUSE: AIM\nSHIFT: SPRINT\nR: RESTART\nH: DEBUG VIEW\nC: CLOSE CONTROLS\nESC: QUIT",
+			3,
+			5))
+	{
+		LogManager::getInstance().log("HUD controls menu failed to build.");
+	}
+	if (!tryCreateLabelSprite(mLevelTitleTexture, mLevelTitleSprite, "Basement", 6, 0))
+	{
+		LogManager::getInstance().log("Level title label failed to build.");
+	}
+	if (!tryCreateLabelSprite(mNeedKeyTexture, mNeedKeySprite, "YOU NEED A KEY CARD", 3, 0))
+	{
+		LogManager::getInstance().log("Need key-card label failed to build.");
+	}
+	if (mNeedKeySprite != 0)
+	{
+		mNeedKeySprite->setRedTint(0.25f);
+		mNeedKeySprite->setGreenTint(0.55f);
+		mNeedKeySprite->setBlueTint(0.95f);
+		mNeedKeySprite->setAlpha(0.0f);
+	}
+	if (!tryCreateLabelSprite(mHeadToExtractTexture, mHeadToExtractSprite, "HEAD TO THE", 3, 0))
+	{
+		LogManager::getInstance().log("Head-to-extraction label failed to build.");
+	}
+	if (!tryCreateLabelSprite(mExtractWordTexture, mExtractWordSprite, "EXTRACTION", 3, 0))
+	{
+		LogManager::getInstance().log("Extraction word label failed to build.");
+	}
+	if (mExtractWordSprite != 0)
+	{
+		mExtractWordSprite->setRedTint(0.3f);
+		mExtractWordSprite->setGreenTint(1.0f);
+		mExtractWordSprite->setBlueTint(0.45f);
+		mExtractWordSprite->setAlpha(0.0f);
 	}
 
 	resetMission();
@@ -1137,6 +1343,10 @@ bool Game::doGameLoop()
 			else if (!mSplashSequenceActive && event.key.keysym.scancode == SDL_SCANCODE_H)
 			{
 				mShowSunekuHitbox = !mShowSunekuHitbox;
+			}
+			else if (!mSplashSequenceActive && event.key.keysym.scancode == SDL_SCANCODE_C)
+			{
+				mShowControlsMenu = !mShowControlsMenu;
 			}
 			else if (!mSplashSequenceActive && event.key.keysym.scancode == SDL_SCANCODE_R)
 			{
@@ -1193,11 +1403,14 @@ void Game::resetMission()
 	mOcelotPatrolIndex = 0;
 	mOcelotAwake = true;
 	mOcelotState = OcelotState::Investigate;
-	mWallNoisePulseActiveWalk = false;
-	mWallNoisePulseAgeWalk = 0.0f;
-	mWallNoisePulseActiveSprint = false;
-	mWallNoisePulseAgeSprint = 0.0f;
+	mLevelTitleTimer = 0.0f;
+	mNeedKeyTimer = 0.0f;
+	mHeadToExtractTimer = 0.0f;
 	mLastWallHitNoiseRadius = 0.0f;
+	mWalkNoisePulses.clear();
+	mSprintNoisePulses.clear();
+	mWalkPulseCooldown = 0.0f;
+	mSprintPulseCooldown = 0.0f;
 	std::fill(mOutlineWallPrevTouch.begin(), mOutlineWallPrevTouch.end(), false);
 	mFootstepCooldown = 0.0f;
 	if (mFootstepClipsReady)
@@ -1242,6 +1455,18 @@ void Game::process(float deltaTime)
 	{
 		updateSplashIntro(deltaTime);
 		return;
+	}
+	if (mLevelTitleTimer > 0.0f)
+	{
+		mLevelTitleTimer = std::max(0.0f, mLevelTitleTimer - deltaTime);
+	}
+	if (mNeedKeyTimer > 0.0f)
+	{
+		mNeedKeyTimer = std::max(0.0f, mNeedKeyTimer - deltaTime);
+	}
+	if (mHeadToExtractTimer > 0.0f)
+	{
+		mHeadToExtractTimer = std::max(0.0f, mHeadToExtractTimer - deltaTime);
 	}
 
 	if (mSuneku != 0)
@@ -1362,22 +1587,26 @@ void Game::process(float deltaTime)
 			emitNoiseEvent(clampedX, clampedY, sprintHeld);
 		}
 
-		if (mWallNoisePulseActiveWalk)
+		for (NoisePulse& pulse : mWalkNoisePulses)
 		{
-			mWallNoisePulseAgeWalk += deltaTime;
-			if (mWallNoisePulseAgeWalk >= kNoisePulseDuration)
-			{
-				mWallNoisePulseActiveWalk = false;
-			}
+			pulse.age += deltaTime;
 		}
-		if (mWallNoisePulseActiveSprint)
+		mWalkNoisePulses.erase(
+			std::remove_if(
+				mWalkNoisePulses.begin(),
+				mWalkNoisePulses.end(),
+				[](const NoisePulse& pulse) { return pulse.age >= kNoisePulseDuration; }),
+			mWalkNoisePulses.end());
+		for (NoisePulse& pulse : mSprintNoisePulses)
 		{
-			mWallNoisePulseAgeSprint += deltaTime;
-			if (mWallNoisePulseAgeSprint >= kNoisePulseDuration)
-			{
-				mWallNoisePulseActiveSprint = false;
-			}
+			pulse.age += deltaTime;
 		}
+		mSprintNoisePulses.erase(
+			std::remove_if(
+				mSprintNoisePulses.begin(),
+				mSprintNoisePulses.end(),
+				[](const NoisePulse& pulse) { return pulse.age >= kNoisePulseDuration; }),
+			mSprintNoisePulses.end());
 
 		mSunekuX = clampedX;
 		mSunekuY = clampedY;
@@ -1385,13 +1614,37 @@ void Game::process(float deltaTime)
 		// Footsteps: key-based cadence (movement can be tiny against walls; SDL_QueueAudio copies bytes).
 		if (mFootstepClipsReady && moveInput)
 		{
+			if (mWalkPulseCooldown > 0.0f)
+			{
+				mWalkPulseCooldown = std::max(0.0f, mWalkPulseCooldown - deltaTime);
+			}
+			if (mSprintPulseCooldown > 0.0f)
+			{
+				mSprintPulseCooldown = std::max(0.0f, mSprintPulseCooldown - deltaTime);
+			}
 			const float stepInterval =
 				sprintHeld ? kFootstepIntervalSprint : kFootstepIntervalWalk;
 			mFootstepCooldown -= deltaTime;
 			if (mFootstepCooldown <= 0.0f)
 			{
 				playNextFootstepClip();
-				emitNoiseEvent(mSunekuX, mSunekuY, sprintHeld);
+				if (sprintHeld)
+				{
+					if (mSprintPulseCooldown <= 0.0f)
+					{
+						emitNoiseEvent(mSunekuX, mSunekuY, true);
+						mSprintPulseCooldown = kSprintPulseInterval;
+					}
+				}
+				else
+				{
+					if (mWalkPulseCooldown <= 0.0f)
+					{
+						emitNoiseEvent(mSunekuX, mSunekuY, false);
+						mWalkPulseCooldown = kWalkPulseInterval;
+					}
+					mSprintPulseCooldown = 0.0f;
+				}
 				mFootstepCooldown = stepInterval;
 			}
 		}
@@ -1403,6 +1656,8 @@ void Game::process(float deltaTime)
 				SDL_ClearQueuedAudio(static_cast<SDL_AudioDeviceID>(mFootstepAudioDevice));
 			}
 			mFootstepCooldown = 0.0f;
+			mWalkPulseCooldown = 0.0f;
+			mSprintPulseCooldown = 0.0f;
 		}
 
 		mSuneku->setX(static_cast<int>(mSunekuX));
@@ -1428,6 +1683,7 @@ void Game::process(float deltaTime)
 				if (kdx * kdx + kdy * kdy <= kKeyCardPickupRadius * kKeyCardPickupRadius)
 				{
 					mHasKeyCard = true;
+					mHeadToExtractTimer = kHeadToExtractMessageDurationSec;
 				}
 			}
 
@@ -1458,30 +1714,38 @@ void Game::process(float deltaTime)
 				}
 			}
 
-			if (mMissionState == MissionState::Playing && mHasKeyCard)
+			if (mMissionState == MissionState::Playing)
 			{
 				const float ax = std::fabs(mSunekuX - mExtractCenterX);
 				const float ay = std::fabs(mSunekuY - mExtractCenterY);
 				if (ax <= mExtractHalfW && ay <= mExtractHalfH)
 				{
-					if (mCurrentLevel == 1)
+					if (!mHasKeyCard)
 					{
-						setupLevel(2);
-						mMissionState = MissionState::Playing;
-						mHasKeyCard = false;
-						mOcelotFacingDeg = 180.0f;
-						mOcelotInvestigateX = mOcelotX;
-						mOcelotInvestigateY = mOcelotY;
-						mOcelotLastSeenX = mOcelotX;
-						mOcelotLastSeenY = mOcelotY;
-						mOcelotSearchTimer = 0.0f;
-						mOcelotState = OcelotState::Investigate;
-						mOcelotPatrolIndex = 0;
-						std::fill(mOutlineWallPrevTouch.begin(), mOutlineWallPrevTouch.end(), false);
+						mNeedKeyTimer = kNeedKeyMessageDurationSec;
 					}
 					else
 					{
-						mMissionState = MissionState::Won;
+						if (mCurrentLevel == 1)
+						{
+							setupLevel(2);
+							mLevelTitleTimer = kLevelTitleDurationSec;
+							mMissionState = MissionState::Playing;
+							mHasKeyCard = false;
+							mOcelotFacingDeg = 180.0f;
+							mOcelotInvestigateX = mOcelotX;
+							mOcelotInvestigateY = mOcelotY;
+							mOcelotLastSeenX = mOcelotX;
+							mOcelotLastSeenY = mOcelotY;
+							mOcelotSearchTimer = 0.0f;
+							mOcelotState = OcelotState::Investigate;
+							mOcelotPatrolIndex = 0;
+							std::fill(mOutlineWallPrevTouch.begin(), mOutlineWallPrevTouch.end(), false);
+						}
+						else
+						{
+							mMissionState = MissionState::Won;
+						}
 					}
 				}
 			}
@@ -1660,11 +1924,23 @@ bool Game::pickEnemySteerTarget(
 		const float ay = wire[static_cast<std::size_t>(o + 1)];
 		const float bx = wire[static_cast<std::size_t>(o + 2)];
 		const float by = wire[static_cast<std::size_t>(o + 3)];
-		const float nudge = 20.0f;
+		const float nudge = 34.0f;
 		tryCandidate(ax + nudge, ay + nudge);
 		tryCandidate(ax - nudge, ay - nudge);
 		tryCandidate(bx + nudge, by + nudge);
 		tryCandidate(bx - nudge, by - nudge);
+		const float mx = (ax + bx) * 0.5f;
+		const float my = (ay + by) * 0.5f;
+		const float sx = bx - ax;
+		const float sy = by - ay;
+		const float sl = std::sqrt(sx * sx + sy * sy);
+		if (sl > 1.0e-4f)
+		{
+			const float nx = -sy / sl;
+			const float ny = sx / sl;
+			tryCandidate(mx + nx * nudge, my + ny * nudge);
+			tryCandidate(mx - nx * nudge, my - ny * nudge);
+		}
 	}
 
 	return found;
@@ -1721,11 +1997,23 @@ bool Game::pickOcelotSteerTarget(float goalX, float goalY, float& outX, float& o
 		const float ay = wire[static_cast<std::size_t>(o + 1)];
 		const float bx = wire[static_cast<std::size_t>(o + 2)];
 		const float by = wire[static_cast<std::size_t>(o + 3)];
-		const float nudge = 20.0f;
+		const float nudge = 34.0f;
 		tryCandidate(ax + nudge, ay + nudge);
 		tryCandidate(ax - nudge, ay - nudge);
 		tryCandidate(bx + nudge, by + nudge);
 		tryCandidate(bx - nudge, by - nudge);
+		const float mx = (ax + bx) * 0.5f;
+		const float my = (ay + by) * 0.5f;
+		const float sx = bx - ax;
+		const float sy = by - ay;
+		const float sl = std::sqrt(sx * sx + sy * sy);
+		if (sl > 1.0e-4f)
+		{
+			const float nx = -sy / sl;
+			const float ny = sx / sl;
+			tryCandidate(mx + nx * nudge, my + ny * nudge);
+			tryCandidate(mx - nx * nudge, my - ny * nudge);
+		}
 	}
 
 	return found;
@@ -1733,6 +2021,17 @@ bool Game::pickOcelotSteerTarget(float goalX, float goalY, float& outX, float& o
 
 void Game::updateEnemyAgent(EnemyAgent& enemy, int enemyIndex, float deltaTime)
 {
+	const bool patrolEnemy = (mCurrentLevel == 2 && enemyIndex >= 0 && enemyIndex < 3);
+	if (patrolEnemy)
+	{
+		// L2 patrol enemies should always roam; never remain dormant.
+		enemy.awake = true;
+		if (enemy.state == OcelotState::Dormant)
+		{
+			enemy.state = OcelotState::Investigate;
+		}
+	}
+
 	if (!enemy.awake)
 	{
 		return;
@@ -1755,11 +2054,17 @@ void Game::updateEnemyAgent(EnemyAgent& enemy, int enemyIndex, float deltaTime)
 		enemy.state = OcelotState::Chase;
 		enemy.lastSeenX = mSunekuX;
 		enemy.lastSeenY = mSunekuY;
-		enemy.searchTimer = kOcelotSearchDuration;
+		enemy.searchTimer = kChasePersistenceSec;
 	}
 	else if (enemy.state == OcelotState::Chase)
 	{
-		enemy.state = OcelotState::Search;
+		enemy.searchTimer -= deltaTime;
+		if (enemy.searchTimer <= 0.0f)
+		{
+			// Patrol enemies resume roaming instead of waiting in place.
+			enemy.state = patrolEnemy ? OcelotState::Investigate : OcelotState::Search;
+			enemy.searchTimer = kOcelotSearchDuration;
+		}
 	}
 
 	float targetX = enemy.x;
@@ -1784,7 +2089,7 @@ void Game::updateEnemyAgent(EnemyAgent& enemy, int enemyIndex, float deltaTime)
 		moveSpeed = enemy.searchSpeed;
 	}
 
-	if (mCurrentLevel == 2 && enemyIndex >= 0 && enemyIndex < 3 && enemy.state == OcelotState::Investigate)
+	if (patrolEnemy && enemy.state == OcelotState::Investigate)
 	{
 		const float* route = 0;
 		int routeCount = 0;
@@ -1801,6 +2106,8 @@ void Game::updateEnemyAgent(EnemyAgent& enemy, int enemyIndex, float deltaTime)
 	float steerY = targetY;
 	pickEnemySteerTarget(enemy, targetX, targetY, steerX, steerY);
 
+	const float oldX = enemy.x;
+	const float oldY = enemy.y;
 	float dx = steerX - enemy.x;
 	float dy = steerY - enemy.y;
 	const float d2 = dx * dx + dy * dy;
@@ -1809,9 +2116,31 @@ void Game::updateEnemyAgent(EnemyAgent& enemy, int enemyIndex, float deltaTime)
 		const float d = std::sqrt(d2);
 		dx /= d;
 		dy /= d;
+		if (enemy.recoverTimer > 0.0f)
+		{
+			const float blend = 0.55f;
+			dx = dx * (1.0f - blend) + enemy.recoverDirX * blend;
+			dy = dy * (1.0f - blend) + enemy.recoverDirY * blend;
+			const float dl = std::sqrt(dx * dx + dy * dy);
+			if (dl > 1.0e-4f)
+			{
+				dx /= dl;
+				dy /= dl;
+			}
+		}
 		enemy.x += dx * moveSpeed * deltaTime;
 		enemy.y += dy * moveSpeed * deltaTime;
-		enemy.facingDeg = wrap360(-std::atan2(dy, dx) * 57.2957795f);
+		const float targetFacing = wrap360(-std::atan2(dy, dx) * 57.2957795f);
+		const float maxTurn = kEnemyTurnRateDegPerSec * deltaTime;
+		const float turnDelta = shortestAngleDeltaDegrees(enemy.facingDeg, targetFacing);
+		if (std::fabs(turnDelta) <= maxTurn)
+		{
+			enemy.facingDeg = targetFacing;
+		}
+		else
+		{
+			enemy.facingDeg = wrap360(enemy.facingDeg + ((turnDelta > 0.0f) ? maxTurn : -maxTurn));
+		}
 	}
 
 	const float er = kOcelotBodyRadius;
@@ -1828,13 +2157,47 @@ void Game::updateEnemyAgent(EnemyAgent& enemy, int enemyIndex, float deltaTime)
 		kOcelotBodyRadius,
 		0.0f);
 
+	{
+		const float moved = std::sqrt((enemy.x - oldX) * (enemy.x - oldX) + (enemy.y - oldY) * (enemy.y - oldY));
+		const bool shouldMove = (d2 > (kOcelotStopDist * kOcelotStopDist) && moveSpeed > 0.0f);
+		if (shouldMove && moved < std::max(3.0f * deltaTime, 0.35f))
+		{
+			enemy.stuckTimer += deltaTime;
+			if (enemy.stuckTimer > 0.35f)
+			{
+				const float gx = targetX - enemy.x;
+				const float gy = targetY - enemy.y;
+				const float gl = std::sqrt(gx * gx + gy * gy);
+				if (gl > 1.0e-4f)
+				{
+					const float sign = ((enemy.patrolIndex + static_cast<int>(enemy.stuckTimer * 1000.0f)) & 1) ? 1.0f : -1.0f;
+					enemy.recoverDirX = (-gy / gl) * sign;
+					enemy.recoverDirY = (gx / gl) * sign;
+					enemy.recoverTimer = 0.32f;
+				}
+				enemy.stuckTimer = 0.0f;
+			}
+		}
+		else
+		{
+			enemy.stuckTimer = 0.0f;
+		}
+		if (enemy.recoverTimer > 0.0f)
+		{
+			enemy.recoverTimer -= deltaTime;
+			if (enemy.recoverTimer < 0.0f)
+			{
+				enemy.recoverTimer = 0.0f;
+			}
+		}
+	}
+
 	if (enemy.state == OcelotState::Investigate)
 	{
 		const float ix = targetX - enemy.x;
 		const float iy = targetY - enemy.y;
 		if (ix * ix + iy * iy <= kOcelotStopDist * kOcelotStopDist)
 		{
-			const bool patrolEnemy = (mCurrentLevel == 2 && enemyIndex >= 0 && enemyIndex < 3);
 			if (patrolEnemy)
 			{
 				const float* route = 0;
@@ -1859,8 +2222,27 @@ void Game::updateEnemyAgent(EnemyAgent& enemy, int enemyIndex, float deltaTime)
 		if (enemy.searchTimer <= 0.0f)
 		{
 			enemy.state = OcelotState::Investigate;
-			enemy.investigateX = enemy.x;
-			enemy.investigateY = enemy.y;
+			if (patrolEnemy)
+			{
+				const float* route = 0;
+				int routeCount = 0;
+				if (getEnemyPatrolRoute(enemyIndex, route, routeCount) && routeCount > 0)
+				{
+					const int node = enemy.patrolIndex % routeCount;
+					enemy.investigateX = route[static_cast<std::size_t>(node * 2 + 0)];
+					enemy.investigateY = route[static_cast<std::size_t>(node * 2 + 1)];
+				}
+				else
+				{
+					enemy.investigateX = enemy.x;
+					enemy.investigateY = enemy.y;
+				}
+			}
+			else
+			{
+				enemy.investigateX = enemy.x;
+				enemy.investigateY = enemy.y;
+			}
 		}
 	}
 }
@@ -1892,11 +2274,16 @@ void Game::updateOcelot(float deltaTime)
 		mOcelotState = OcelotState::Chase;
 		mOcelotLastSeenX = mSunekuX;
 		mOcelotLastSeenY = mSunekuY;
-		mOcelotSearchTimer = kOcelotSearchDuration;
+		mOcelotSearchTimer = kChasePersistenceSec;
 	}
 	else if (mOcelotState == OcelotState::Chase)
 	{
-		mOcelotState = OcelotState::Search;
+		mOcelotSearchTimer -= deltaTime;
+		if (mOcelotSearchTimer <= 0.0f)
+		{
+			mOcelotState = OcelotState::Search;
+			mOcelotSearchTimer = kOcelotSearchDuration;
+		}
 	}
 
 	float targetX = mOcelotX;
@@ -1961,7 +2348,17 @@ void Game::updateOcelot(float deltaTime)
 		dy /= d;
 		mOcelotX += dx * moveSpeed * deltaTime;
 		mOcelotY += dy * moveSpeed * deltaTime;
-		mOcelotFacingDeg = wrap360(-std::atan2(dy, dx) * 57.2957795f);
+		const float targetFacing = wrap360(-std::atan2(dy, dx) * 57.2957795f);
+		const float maxTurn = kOcelotTurnRateDegPerSec * deltaTime;
+		const float turnDelta = shortestAngleDeltaDegrees(mOcelotFacingDeg, targetFacing);
+		if (std::fabs(turnDelta) <= maxTurn)
+		{
+			mOcelotFacingDeg = targetFacing;
+		}
+		else
+		{
+			mOcelotFacingDeg = wrap360(mOcelotFacingDeg + ((turnDelta > 0.0f) ? maxTurn : -maxTurn));
+		}
 	}
 
 	const float er = kOcelotBodyRadius;
@@ -2035,7 +2432,29 @@ void Game::draw(Renderer& renderer)
 
 	if (mFloor != 0)
 	{
-		mFloor->draw(renderer);
+		mFloor->setScale(1.0f);
+		const int floorW = mFloor->getWidth();
+		const int floorH = mFloor->getHeight();
+		if (floorW > 0 && floorH > 0)
+		{
+			const float tileWorldSize = 96.0f;
+			const float floorScale = tileWorldSize / static_cast<float>(std::max(floorW, floorH));
+			mFloor->setScale(floorScale);
+			const float tileW = static_cast<float>(mFloor->getWidth());
+			const float tileH = static_cast<float>(mFloor->getHeight());
+			if (tileW > 0.0f && tileH > 0.0f)
+			{
+				for (float y = tileH * 0.5f; y <= mMapHeight - tileH * 0.5f; y += tileH)
+				{
+					for (float x = tileW * 0.5f; x <= mMapWidth - tileW * 0.5f; x += tileW)
+					{
+						mFloor->setX(static_cast<int>(x));
+						mFloor->setY(static_cast<int>(y));
+						mFloor->draw(renderer);
+					}
+				}
+			}
+		}
 	}
 
 	renderer.drawWorldLineSegments(
@@ -2094,8 +2513,24 @@ void Game::draw(Renderer& renderer)
 		const float er = kOcelotBodyRadius;
 		if (mOcelotAwake)
 		{
-			drawWorldCircleOutline(renderer, mOcelotX, mOcelotY, er, 36, 1.0f, 0.32f, 0.08f, 1.0f);
-			drawWorldCircleOutline(renderer, mOcelotX, mOcelotY, er * 0.55f, 24, 1.0f, 0.55f, 0.2f, 0.85f);
+			if (mOcelotSprite != 0)
+			{
+				mOcelotSprite->setScale(1.0f);
+				const int texMax = std::max(mOcelotSprite->getWidth(), mOcelotSprite->getHeight());
+				if (texMax > 0)
+				{
+					mOcelotSprite->setScale((er * 2.0f) / static_cast<float>(texMax));
+				}
+				mOcelotSprite->setX(static_cast<int>(mOcelotX));
+				mOcelotSprite->setY(static_cast<int>(mOcelotY));
+				mOcelotSprite->setAngle(mOcelotFacingDeg);
+				mOcelotSprite->draw(renderer);
+			}
+			else
+			{
+				drawWorldCircleOutline(renderer, mOcelotX, mOcelotY, er, 36, 0.12f, 0.42f, 0.18f, 1.0f);
+				drawWorldCircleOutline(renderer, mOcelotX, mOcelotY, er * 0.55f, 24, 0.24f, 0.62f, 0.26f, 0.85f);
+			}
 		}
 		else
 		{
@@ -2105,8 +2540,24 @@ void Game::draw(Renderer& renderer)
 	for (const EnemyAgent& enemy : mExtraEnemies)
 	{
 		const float er = kOcelotBodyRadius * 0.86f;
-		drawWorldCircleOutline(renderer, enemy.x, enemy.y, er, 34, 0.95f, 0.18f, 0.18f, 0.92f);
-		drawWorldCircleOutline(renderer, enemy.x, enemy.y, er * 0.52f, 22, 1.0f, 0.46f, 0.24f, 0.75f);
+		if (mEnemySprite != 0)
+		{
+			mEnemySprite->setScale(1.0f);
+			const int texMax = std::max(mEnemySprite->getWidth(), mEnemySprite->getHeight());
+			if (texMax > 0)
+			{
+				mEnemySprite->setScale((er * 2.0f) / static_cast<float>(texMax));
+			}
+			mEnemySprite->setX(static_cast<int>(enemy.x));
+			mEnemySprite->setY(static_cast<int>(enemy.y));
+			mEnemySprite->setAngle(enemy.facingDeg);
+			mEnemySprite->draw(renderer);
+		}
+		else
+		{
+			drawWorldCircleOutline(renderer, enemy.x, enemy.y, er, 34, 1.0f, 0.44f, 0.12f, 0.92f);
+			drawWorldCircleOutline(renderer, enemy.x, enemy.y, er * 0.52f, 22, 1.0f, 0.62f, 0.24f, 0.75f);
+		}
 	}
 
 	drawWorldConeOutline(
@@ -2260,12 +2711,20 @@ void Game::draw(Renderer& renderer)
 		mSunekuHitboxDebug->draw(renderer);
 	}
 
-	if (mShowSunekuHitbox && mWallNoisePulseActiveWalk && mWallNoisePulseMaxRWalk > 1.0f)
+	if (mShowSunekuHitbox)
 	{
-		const float t = mWallNoisePulseAgeWalk / kNoisePulseDuration;
-		if (t >= 0.0f && t < 1.0f)
+		for (const NoisePulse& pulse : mWalkNoisePulses)
 		{
-			const float ringR = mWallNoisePulseMaxRWalk * t;
+			if (pulse.maxRadius <= 1.0f)
+			{
+				continue;
+			}
+			const float t = pulse.age / kNoisePulseDuration;
+			if (t < 0.0f || t >= 1.0f)
+			{
+				continue;
+			}
+			const float ringR = pulse.maxRadius * t;
 			const float alpha = (1.0f - t) * 0.9f;
 			const int n = 36;
 			float xy[72];
@@ -2273,18 +2732,23 @@ void Game::draw(Renderer& renderer)
 			for (int i = 0; i < n; ++i)
 			{
 				const float ang = twoPi * static_cast<float>(i) / static_cast<float>(n);
-				xy[i * 2 + 0] = mWallNoisePulseCxWalk + std::cos(ang) * ringR;
-				xy[i * 2 + 1] = mWallNoisePulseCyWalk + std::sin(ang) * ringR;
+				xy[i * 2 + 0] = pulse.cx + std::cos(ang) * ringR;
+				xy[i * 2 + 1] = pulse.cy + std::sin(ang) * ringR;
 			}
 			renderer.drawWorldLineLoop(xy, n, 0.3f, 1.0f, 0.55f, alpha);
 		}
-	}
-	if (mShowSunekuHitbox && mWallNoisePulseActiveSprint && mWallNoisePulseMaxRSprint > 1.0f)
-	{
-		const float t = mWallNoisePulseAgeSprint / kNoisePulseDuration;
-		if (t >= 0.0f && t < 1.0f)
+		for (const NoisePulse& pulse : mSprintNoisePulses)
 		{
-			const float ringR = mWallNoisePulseMaxRSprint * t;
+			if (pulse.maxRadius <= 1.0f)
+			{
+				continue;
+			}
+			const float t = pulse.age / kNoisePulseDuration;
+			if (t < 0.0f || t >= 1.0f)
+			{
+				continue;
+			}
+			const float ringR = pulse.maxRadius * t;
 			const float alpha = (1.0f - t) * 0.9f;
 			const int n = 36;
 			float xy[72];
@@ -2292,8 +2756,8 @@ void Game::draw(Renderer& renderer)
 			for (int i = 0; i < n; ++i)
 			{
 				const float ang = twoPi * static_cast<float>(i) / static_cast<float>(n);
-				xy[i * 2 + 0] = mWallNoisePulseCxSprint + std::cos(ang) * ringR;
-				xy[i * 2 + 1] = mWallNoisePulseCySprint + std::sin(ang) * ringR;
+				xy[i * 2 + 0] = pulse.cx + std::cos(ang) * ringR;
+				xy[i * 2 + 1] = pulse.cy + std::sin(ang) * ringR;
 			}
 			renderer.drawWorldLineLoop(xy, n, 0.25f, 0.65f, 1.0f, alpha);
 		}
@@ -2313,6 +2777,14 @@ void Game::draw(Renderer& renderer)
 		mHudObjectiveSprite->setY(static_cast<int>(ocy));
 		mHudObjectiveSprite->setAlpha(0.92f);
 		mHudObjectiveSprite->draw(renderer);
+		if (mHudObjectiveKeySprite != 0)
+		{
+			const float keyCardLineOffsetY = 9.0f;
+			mHudObjectiveKeySprite->setX(static_cast<int>(ocx));
+			mHudObjectiveKeySprite->setY(static_cast<int>(ocy - keyCardLineOffsetY));
+			mHudObjectiveKeySprite->setAlpha(0.95f);
+			mHudObjectiveKeySprite->draw(renderer);
+		}
 	}
 
 	if (mMissionState == MissionState::Won && mHudWinSprite != 0)
@@ -2339,10 +2811,153 @@ void Game::draw(Renderer& renderer)
 		const int sw = mVersionSprite->getWidth();
 		const int sh = mVersionSprite->getHeight();
 		const float cx = mCameraX + viewW - margin - static_cast<float>(sw) * 0.5f;
-		const float cy = mCameraY + margin + static_cast<float>(sh) * 0.5f;
+		const float notchSafeTopMargin = 64.0f;
+		const float cy = mCameraY + notchSafeTopMargin + static_cast<float>(sh) * 0.5f;
 		mVersionSprite->setX(static_cast<int>(cx));
 		mVersionSprite->setY(static_cast<int>(cy));
 		mVersionSprite->draw(renderer);
+	}
+	if (mHudControlsPromptSprite != 0 && mMissionState == MissionState::Playing && !mShowControlsMenu)
+	{
+		const int pw = mHudControlsPromptSprite->getWidth();
+		const int ph = mHudControlsPromptSprite->getHeight();
+		const float pcx = mCameraX + viewW - margin - static_cast<float>(pw) * 0.5f;
+		const float pcy = mCameraY + viewH - margin - static_cast<float>(ph) * 0.5f;
+		mHudControlsPromptSprite->setX(static_cast<int>(pcx));
+		mHudControlsPromptSprite->setY(static_cast<int>(pcy));
+		mHudControlsPromptSprite->setAlpha(0.88f);
+		mHudControlsPromptSprite->draw(renderer);
+	}
+	if (mShowControlsMenu && mHudControlsMenuSprite != 0)
+	{
+		const int mw = mHudControlsMenuSprite->getWidth();
+		const int mh = mHudControlsMenuSprite->getHeight();
+		const float mcx = mCameraX + viewW * 0.5f;
+		const float mcy = mCameraY + viewH * 0.5f;
+		renderer.drawWorldAxisAlignedQuad(
+			mcx,
+			mcy,
+			static_cast<float>(mw) * 0.5f + 36.0f,
+			static_cast<float>(mh) * 0.5f + 28.0f,
+			0.0f,
+			0.0f,
+			0.0f,
+			0.72f);
+		mHudControlsMenuSprite->setX(static_cast<int>(mcx));
+		mHudControlsMenuSprite->setY(static_cast<int>(mcy));
+		mHudControlsMenuSprite->setAlpha(1.0f);
+		mHudControlsMenuSprite->draw(renderer);
+	}
+	if (mHeadToExtractTimer > 0.0f && mHeadToExtractSprite != 0 && mExtractWordSprite != 0)
+	{
+		float extractAlpha = 1.0f;
+		if (mHeadToExtractTimer < kHeadToExtractMessageFadeOutSec)
+		{
+			extractAlpha = mHeadToExtractTimer / kHeadToExtractMessageFadeOutSec;
+		}
+		extractAlpha = std::max(0.0f, std::min(1.0f, extractAlpha));
+		const int hw = mHeadToExtractSprite->getWidth();
+		const int hh = mHeadToExtractSprite->getHeight();
+		const int ew = mExtractWordSprite->getWidth();
+		const int eh = mExtractWordSprite->getHeight();
+		const float ecx = mCameraX + viewW * 0.5f;
+		const float ecy = mCameraY + viewH * 0.34f;
+		const float lineGap = 8.0f;
+		const float panelHalfW = static_cast<float>(std::max(hw, ew)) * 0.5f + 28.0f;
+		const float panelHalfH = (static_cast<float>(hh + eh) + lineGap) * 0.5f + 18.0f;
+		renderer.drawWorldAxisAlignedQuad(
+			ecx,
+			ecy,
+			panelHalfW,
+			panelHalfH,
+			0.0f,
+			0.0f,
+			0.0f,
+			0.56f * extractAlpha);
+		mHeadToExtractSprite->setX(static_cast<int>(ecx));
+		mHeadToExtractSprite->setY(static_cast<int>(ecy - (static_cast<float>(eh) + lineGap) * 0.5f));
+		mHeadToExtractSprite->setAlpha(extractAlpha);
+		mHeadToExtractSprite->draw(renderer);
+		mExtractWordSprite->setX(static_cast<int>(ecx));
+		mExtractWordSprite->setY(static_cast<int>(ecy + (static_cast<float>(hh) + lineGap) * 0.5f));
+		mExtractWordSprite->setAlpha(extractAlpha);
+		mExtractWordSprite->draw(renderer);
+	}
+	if (mNeedKeyTimer > 0.0f && mNeedKeySprite != 0)
+	{
+		float keyAlpha = 1.0f;
+		if (mNeedKeyTimer < kNeedKeyMessageFadeOutSec)
+		{
+			keyAlpha = mNeedKeyTimer / kNeedKeyMessageFadeOutSec;
+		}
+		keyAlpha = std::max(0.0f, std::min(1.0f, keyAlpha));
+		const int kw = mNeedKeySprite->getWidth();
+		const int kh = mNeedKeySprite->getHeight();
+		const float kcx = mCameraX + viewW * 0.5f;
+		const float kcy = mCameraY + viewH * 0.34f;
+		renderer.drawWorldAxisAlignedQuad(
+			kcx,
+			kcy,
+			static_cast<float>(kw) * 0.5f + 26.0f,
+			static_cast<float>(kh) * 0.5f + 18.0f,
+			0.0f,
+			0.0f,
+			0.0f,
+			0.56f * keyAlpha);
+		mNeedKeySprite->setX(static_cast<int>(kcx));
+		mNeedKeySprite->setY(static_cast<int>(kcy));
+		mNeedKeySprite->setAlpha(keyAlpha);
+		mNeedKeySprite->draw(renderer);
+	}
+	if (mShowSunekuHitbox && mHudDebugSprite != 0)
+	{
+		const int dh = mHudDebugSprite->getHeight();
+		const float dcx = mCameraX + viewW * 0.5f;
+		const float dcy = mCameraY + viewH - margin - static_cast<float>(dh) * 0.5f;
+		const float pulse = 0.5f + 0.5f * std::sin(mExecutionTime * 2.5f);
+		const float alpha = 0.55f + 0.45f * pulse;
+		mHudDebugSprite->setX(static_cast<int>(dcx));
+		mHudDebugSprite->setY(static_cast<int>(dcy));
+		mHudDebugSprite->setRedTint(1.0f);
+		mHudDebugSprite->setGreenTint(0.12f + 0.08f * pulse);
+		mHudDebugSprite->setBlueTint(0.12f + 0.08f * pulse);
+		mHudDebugSprite->setAlpha(alpha);
+		mHudDebugSprite->draw(renderer);
+	}
+	if (mLevelTitleTimer > 0.0f && mLevelTitleSprite != 0)
+	{
+		const float elapsed = kLevelTitleDurationSec - mLevelTitleTimer;
+		float titleAlpha = 1.0f;
+		if (elapsed < kLevelTitleFadeInSec)
+		{
+			titleAlpha = elapsed / kLevelTitleFadeInSec;
+		}
+		else if (elapsed > kLevelTitleFadeInSec + kLevelTitleHoldSec)
+		{
+			const float fadeOutElapsed = elapsed - kLevelTitleFadeInSec - kLevelTitleHoldSec;
+			titleAlpha = 1.0f - (fadeOutElapsed / kLevelTitleFadeOutSec);
+		}
+		titleAlpha = std::max(0.0f, std::min(1.0f, titleAlpha));
+		const int tw = mLevelTitleSprite->getWidth();
+		const int th = mLevelTitleSprite->getHeight();
+		const float tcx = mCameraX + viewW * 0.5f;
+		const float tcy = mCameraY + viewH * 0.5f;
+		renderer.drawWorldAxisAlignedQuad(
+			tcx,
+			tcy,
+			static_cast<float>(tw) * 0.5f + 42.0f,
+			static_cast<float>(th) * 0.5f + 28.0f,
+			0.0f,
+			0.0f,
+			0.0f,
+			0.42f * titleAlpha);
+		mLevelTitleSprite->setX(static_cast<int>(tcx));
+		mLevelTitleSprite->setY(static_cast<int>(tcy));
+		mLevelTitleSprite->setRedTint(0.86f);
+		mLevelTitleSprite->setGreenTint(0.9f);
+		mLevelTitleSprite->setBlueTint(1.0f);
+		mLevelTitleSprite->setAlpha(titleAlpha);
+		mLevelTitleSprite->draw(renderer);
 	}
 
 	renderer.present();
@@ -2828,21 +3443,18 @@ void Game::playNextFootstepClip()
 void Game::emitNoiseEvent(float x, float y, bool loud)
 {
 	mLastWallHitNoiseRadius = loud ? kWallNoiseRadiusSprint : kWallNoiseRadiusWalk;
+	NoisePulse pulse;
+	pulse.age = 0.0f;
+	pulse.maxRadius = mLastWallHitNoiseRadius;
+	pulse.cx = x;
+	pulse.cy = y;
 	if (loud)
 	{
-		mWallNoisePulseActiveSprint = true;
-		mWallNoisePulseAgeSprint = 0.0f;
-		mWallNoisePulseMaxRSprint = mLastWallHitNoiseRadius;
-		mWallNoisePulseCxSprint = x;
-		mWallNoisePulseCySprint = y;
+		mSprintNoisePulses.push_back(pulse);
 	}
 	else
 	{
-		mWallNoisePulseActiveWalk = true;
-		mWallNoisePulseAgeWalk = 0.0f;
-		mWallNoisePulseMaxRWalk = mLastWallHitNoiseRadius;
-		mWallNoisePulseCxWalk = x;
-		mWallNoisePulseCyWalk = y;
+		mWalkNoisePulses.push_back(pulse);
 	}
 
 	if (!mOcelotAwake)
@@ -2880,9 +3492,12 @@ void Game::emitNoiseEvent(float x, float y, bool loud)
 		if (edx * edx + edy * edy <= noiseR * noiseR)
 		{
 			enemy.awake = true;
-			enemy.state = OcelotState::Investigate;
+			enemy.state = OcelotState::Search;
 			enemy.investigateX = x;
 			enemy.investigateY = y;
+			enemy.lastSeenX = x;
+			enemy.lastSeenY = y;
+			enemy.searchTimer = kOcelotSearchDuration;
 			enemy.hearingRadius = noiseR;
 		}
 	}

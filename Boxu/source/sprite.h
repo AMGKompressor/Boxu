@@ -38,6 +38,8 @@ public:
 	float getGreenTint() const;
 	void setBlueTint(float value);
 	float getBlueTint() const;
+	void setCircleMask(bool enabled);
+	bool getCircleMask() const;
 
 protected:
 	float clamp(float minimum, float value, float maximum);
@@ -63,6 +65,7 @@ private:
 	float mTintRed;
 	float mTintGreen;
 	float mTintBlue;
+	bool mCircleMask;
 };
 
 #endif // __SPRITE_H_

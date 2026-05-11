@@ -123,3 +123,21 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/../game/textures")
     COMMENT "Copying textures next to executable"
   )
 endif()
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/../assets/enemTex.png")
+  add_custom_command(
+    TARGET gpframework POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${CMAKE_CURRENT_SOURCE_DIR}/../assets/enemTex.png"
+            "$<TARGET_FILE_DIR:gpframework>/textures/enemTex.png"
+    COMMENT "Copying enemy texture next to executable"
+  )
+endif()
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/../assets/floorTex.png")
+  add_custom_command(
+    TARGET gpframework POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${CMAKE_CURRENT_SOURCE_DIR}/../assets/floorTex.png"
+            "$<TARGET_FILE_DIR:gpframework>/textures/floorTex.png"
+    COMMENT "Copying floor texture next to executable"
+  )
+endif()
